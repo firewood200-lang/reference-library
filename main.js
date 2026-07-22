@@ -153,6 +153,130 @@ ipcMain.handle('set-config', (e, cfg) => {
   return true;
 });
 
+// ---- TTS(문서 읽어주기) 설정 - 같은 설정 파일의 "tts" 하위 키에 저장, 전체 config를 덮어쓰지 않도록 병합 ----
+ipcMain.handle('get-tts-config', () => getConfig().tts || {});
+ipcMain.handle('set-tts-config', (e, partial) => {
+  const cfg = getConfig();
+  cfg.tts = Object.assign({}, cfg.tts || {}, partial);
+  setConfig(cfg);
+  return cfg.tts;
+});
+// "고음질 음성 받기" 버튼용 - 별도 엔진을 앱에 내장하는 대신, 윈도우 자체 "음성 관리" 설정 화면을
+// 바로 열어준다. 거기서 받은 자연스러운(Natural/온라인) 한국어 음성은 다운로드가 끝나면 별도 코드
+// 없이도 speechSynthesis.getVoices() 목록에 자동으로 나타난다 - OS가 음성 다운로드/설치를 전담.
+ipcMain.handle('open-os-voice-settings', () => {
+  shell.openExternal('ms-settings:speech');
+  return true;
+});
+
+// ---- TTS 네이티브 엔진(.NET System.Speech) 프로세스 관리 ----
+// 이 PC의 Chromium이 새로 등록된 일부 SAPI5 음성(유미 등)을 speechSynthesis.getVoices()에
+// 노출하지 않는 문제가 확인됐다(레지스트리는 정상, 크롬 자체 필터링 문제). 반면 PowerShell의
+// System.Speech는 같은 음성을 정상적으로 재생한다. 그래서 읽기 모드 창마다 PowerShell 자식
+// 프로세스(tts-native-engine.ps1)를 하나씩 붙여두고, 표준입출력으로 명령/상태를 주고받는
+// 방식으로 브라우저 TTS 대신 이 경로를 쓴다. 창(webContents)마다 프로세스를 하나씩 유지해서
+// 재생 중 다른 창을 열어도 서로 간섭하지 않는다.
+// 'powershell.exe'를 이름만으로 실행하면 PATH 검색 결과에 따라 32비트 버전이 걸릴 수 있고,
+// 그러면 유미처럼 진짜 64비트 레지스트리에만 등록된 SAPI5 음성을 SelectVoice()가 못 찾는다
+// (목록 조회에선 이름이 얼핏 보이다가 실제 선택 시 "일치하는 음성이 없다" 오류로 실패하는 걸
+// 확인함). 이 앱(Electron) 자체는 64비트로 뜨므로, System32 경로는 리다이렉션 없이 진짜
+// 64비트 PowerShell을 가리킨다 - 이 절대경로를 명시해서 PATH 검색에 흔들리지 않게 한다.
+const POWERSHELL_64 = (() => {
+  const p = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  try { return fs.existsSync(p) ? p : 'powershell.exe'; } catch { return 'powershell.exe'; }
+})();
+const ttsNativeProcesses = new Map(); // webContents.id -> child process
+function getTtsNativeProcess(webContentsId, win) {
+  let proc = ttsNativeProcesses.get(webContentsId);
+  if (proc && !proc.killed) return proc;
+  const scriptPath = path.join(__dirname, 'tts-native-engine.ps1');
+  proc = spawn(POWERSHELL_64, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let buffer = '';
+  proc.stdout.on('data', (chunk) => {
+    buffer += chunk.toString('utf-8');
+    let idx;
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line.startsWith('STATUS:') && win && !win.isDestroyed()) {
+        win.webContents.send('tts-native-status', line.slice('STATUS:'.length));
+      }
+    }
+  });
+  proc.on('error', () => { ttsNativeProcesses.delete(webContentsId); });
+  proc.on('exit', () => { ttsNativeProcesses.delete(webContentsId); });
+  ttsNativeProcesses.set(webContentsId, proc);
+  return proc;
+}
+function killTtsNativeProcess(webContentsId) {
+  const proc = ttsNativeProcesses.get(webContentsId);
+  if (proc && !proc.killed) { try { proc.stdin.write('EXIT\n'); } catch {} try { proc.kill(); } catch {} }
+  ttsNativeProcesses.delete(webContentsId);
+}
+ipcMain.handle('tts-native-list-voices', () => {
+  try {
+    const cmd = "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo.Name } | ConvertTo-Json -Compress";
+    const result = spawnSync(POWERSHELL_64, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { encoding: 'utf-8' });
+    if (result.error) return { success: false, error: result.error.message };
+    if (result.status !== 0) return { success: false, error: result.stderr || '알 수 없는 오류' };
+    let names = JSON.parse((result.stdout || '[]').trim() || '[]');
+    if (!Array.isArray(names)) names = [names];
+    return { success: true, voices: names };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+ipcMain.handle('tts-native-speak', (e, { text, voiceName, rate, pitch, volume }) => {
+  try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const netRate = Math.max(-10, Math.min(10, Math.round(((typeof rate === 'number' ? rate : 1) - 1) * 10)));
+    const netVolume = Math.max(0, Math.min(100, Math.round((typeof volume === 'number' ? volume : 1) * 100)));
+    const netPitch = Math.max(-100, Math.min(100, Math.round(((typeof pitch === 'number' ? pitch : 1) - 1) * 100)));
+    const b64 = Buffer.from(String(text || ''), 'utf-8').toString('base64');
+    const proc = getTtsNativeProcess(e.sender.id, win);
+    if (voiceName) proc.stdin.write(`VOICE:${voiceName}\n`);
+    proc.stdin.write(`RATE:${netRate}\n`);
+    proc.stdin.write(`VOLUME:${netVolume}\n`);
+    proc.stdin.write(`PITCH:${netPitch}\n`);
+    proc.stdin.write(`SPEAK:${b64}\n`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+// 2026-07-20: 일시정지/정지가 조용히 반응 없는 문제 진단용 - proc을 못 찾거나 쓰기 자체가
+// 실패하는 경우 원인을 그대로 렌더러에 돌려줘서 화면에 표시되게 한다(이전엔 무조건 true 반환).
+// 2026-07-22(5차): tts-native-engine.ps1의 명령 파서는 콜론(:)이 없는 줄을 통째로 무시한다
+// ($sep = $line.IndexOf(':'); if ($sep -lt 0) { continue } - RECEIVED:$cmd 진단 로그조차 안 찍힘).
+// PAUSE/RESUME/STOP은 값이 필요 없어 콜론 없이 "PAUSE\n"처럼 그냥 보내고 있었는데, 그래서
+// PowerShell 쪽이 이 명령들을 전부 조용히 버리고 있었다 - 실제로 개발자 도구 콘솔에서
+// RECEIVED:PAUSE가 단 한 번도 안 찍히는 것으로 확인됨(일시정지 버튼이 "반응이 없다"던 진짜
+// 원인). 값 없는 명령도 파서가 인식하도록 뒤에 빈 콜론을 붙여서 보낸다.
+ipcMain.handle('tts-native-pause', (e) => {
+  const proc = ttsNativeProcesses.get(e.sender.id);
+  if (!proc) return { success: false, error: '재생 세션이 없습니다(먼저 읽기를 눌러야 합니다)' };
+  try { proc.stdin.write('PAUSE:\n'); return { success: true }; }
+  catch (err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('tts-native-resume', (e) => {
+  const proc = ttsNativeProcesses.get(e.sender.id);
+  if (!proc) return { success: false, error: '재생 세션이 없습니다(먼저 읽기를 눌러야 합니다)' };
+  try { proc.stdin.write('RESUME:\n'); return { success: true }; }
+  catch (err) { return { success: false, error: err.message }; }
+});
+// 2026-07-22: 세션이 없을 때 이전엔 오류를 돌려줬는데, 그러면 STOPPED 상태 이벤트가 안 와서
+// 렌더러의 resetUi()가 한 번도 안 불려 정지 버튼을 눌러도 다른 버튼들이 재생 중이던 모습(비활성화된
+// 채) 그대로 멈춰버리는 문제가 있었다. "정지"는 원래 멱등적인 동작(이미 멈춰 있으면 목표 상태에
+// 이미 도달한 것)이라, 세션이 없는 걸 오류로 보지 않고 조용히 성공 처리한다.
+ipcMain.handle('tts-native-stop', (e) => {
+  const proc = ttsNativeProcesses.get(e.sender.id);
+  if (!proc) return { success: true };
+  try { proc.stdin.write('STOP:\n'); return { success: true }; }
+  catch (err) { return { success: false, error: err.message }; }
+});
+
 // ---- 코드 저장/받기 (git push/pull을 버튼으로) ----
 // 2026-07-22: 이 앱 자체(reference-library 폴더)를 git 저장소로 바꾸면서, 매번 PowerShell을
 // 열어 git 명령을 치는 대신 앱 안 버튼으로도 되게 만든다. git 명령은 이 파일(main.js)이 있는
@@ -553,19 +677,23 @@ ipcMain.handle('open-text-window', (e, filePath) => {
       h1{font-size:18px;color:#bbb;margin:0 0 16px;word-break:break-all;}
       pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:14.5px;color:#ddd;margin:0;}
       .notice{color:#e0a050;font-size:12px;margin-top:16px;}
+      ${ttsCss()}
       </style></head><body><div class="wrap">
       <h1>${escapeHtmlMain(title)}</h1>
+      ${ttsBarHtml()}
       <pre>${escapeHtmlMain(content)}</pre>
       ${truncated ? '<div class="notice">파일이 너무 커서 앞부분만 표시했습니다.</div>' : ''}
-      </div></body></html>`;
+      </div>${ttsScript(content)}</body></html>`;
     const win = new BrowserWindow({
       width: 760, height: 880, title,
       ...(centeredPosOnMain(760, 880) || {}),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'tts-reader-preload.js') }
     });
     win.setMenuBarVisibility(false);
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
     textWindows.push(win);
-    win.on('closed', () => { textWindows = textWindows.filter(w => w !== win); });
+    const wcId = win.webContents.id;
+    win.on('closed', () => { textWindows = textWindows.filter(w => w !== win); killTtsNativeProcess(wcId); });
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -900,6 +1028,278 @@ function escapeHtmlMain(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ---- 문서/기사 읽기 창용 TTS(음성 읽기) ----
+// "읽기 모드" 창(open-text-window/open-link-window)이 data: URL로 뜨는 별도 창이라 렌더러
+// 프로세스 코드를 공유하기 어렵다. 대신 각 창의 HTML에 그대로 심을 수 있는 문자열(CSS/버튼바/스크립트)을
+// 만드는 공용 함수로 빼서 두 창(txt/md/docx 읽기 창, 저장된 기사 읽기 창)이 똑같이 재사용한다.
+function ttsCss() {
+  return `.ttsBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 0 14px;margin-bottom:14px;border-bottom:1px solid #333;}
+    .ttsBar button{background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;font-family:inherit;}
+    .ttsBar button:hover:not(:disabled){background:#3a3a3a;}
+    .ttsBar button:disabled{opacity:.4;cursor:default;}
+    .ttsBar button.active{background:#3a5a8a;border-color:#5a80c0;}
+    .ttsStatus{font-size:12px;color:#999;}
+    .ttsSnippet{font-size:12.5px;color:#aaa;margin:-6px 0 14px;line-height:1.6;min-height:1.6em;word-break:break-word;}
+    mark.ttsHi{background:#3a5a8a;color:#fff;padding:0 1px;border-radius:2px;}
+    .ttsSettings{display:none;flex-direction:column;gap:10px;background:#232323;border:1px solid #3a3a3a;border-radius:10px;padding:12px 14px;margin:-4px 0 14px;font-size:13px;}
+    .ttsSettings.show{display:flex;}
+    .ttsSettings label{display:flex;flex-direction:column;gap:4px;color:#bbb;font-size:12px;}
+    .ttsSettings select{background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:6px;padding:6px;font-size:12.5px;font-family:inherit;}
+    .ttsSettings .row{display:flex;align-items:center;gap:10px;}
+    .ttsSettings .row input[type=range]{flex:1;}
+    .ttsSettings .rowVal{min-width:32px;text-align:right;color:#ccc;font-variant-numeric:tabular-nums;font-size:12px;}
+    .ttsDownload{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid #3a3a3a;}
+    .ttsDownload p{margin:0;font-size:11.5px;color:#888;line-height:1.5;}
+    .ttsDownload button{align-self:flex-start;background:#3a2a1a;border-color:#7a5a2a;}
+    .ttsDownload button:hover{background:#4a3520;}`;
+}
+function ttsBarHtml() {
+  return `<div class="ttsBar">
+      <button id="ttsPlay">▶ 읽기</button>
+      <button id="ttsPause" disabled>⏸ 일시정지</button>
+      <button id="ttsStop" disabled>■ 정지</button>
+      <button id="ttsSettingsBtn" title="음성/속도 설정">⚙ 설정</button>
+      <span class="ttsStatus" id="ttsStatus"></span>
+    </div>
+    <div class="ttsSnippet" id="ttsSnippet"></div>
+    <div class="ttsSettings" id="ttsSettings">
+      <label>음성(엔진)
+        <select id="ttsVoice"><option value="">불러오는 중...</option></select>
+      </label>
+      <div class="row"><span style="width:52px;color:#bbb;font-size:12px;">속도</span><input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="0.95"><span class="rowVal" id="ttsRateVal">0.95x</span></div>
+      <div class="row"><span style="width:52px;color:#bbb;font-size:12px;">음높이</span><input type="range" id="ttsPitch" min="0" max="2" step="0.1" value="0.85"><span class="rowVal" id="ttsPitchVal">0.85</span></div>
+      <p style="margin:0;font-size:11px;color:#777;">쇳소리가 심하면 음높이를 더 내려보세요(0.7~0.8 권장 구간).</p>
+      <div class="row"><span style="width:52px;color:#bbb;font-size:12px;">볼륨</span><input type="range" id="ttsVolume" min="0" max="1" step="0.05" value="1"><span class="rowVal" id="ttsVolumeVal">100%</span></div>
+      <div class="ttsDownload">
+        <p>이 목록은 브라우저가 아니라 윈도우에 설치된 모든 음성(PowerShell과 동일한 방식)을 직접 읽어옵니다. 윈도우 설정에서 새 음성을 받은 뒤 이 창을 다시 열면 목록에 자동으로 나타납니다.</p>
+        <button type="button" id="ttsGetVoice">고음질 음성 받기 (Windows 설정 열기)</button>
+      </div>
+    </div>`;
+}
+function ttsScript(text) {
+  // 문서 내용 안에 "</script>" 같은 문자열이 섞여 있으면 HTML 파서가 스크립트 태그를 거기서
+  // 조기 종료시켜버린다. JSON.stringify로 안전하게 문자열화한 뒤 '<'만 유니코드 이스케이프로
+  // 바꿔서 심으면(런타임엔 정상적으로 '<' 문자로 해석됨) 이 문제를 막을 수 있다.
+  const safe = JSON.stringify(text || '').replace(/</g, '\\u003C');
+  return `<script>(function(){
+      var fullText = ${safe};
+      var playBtn = document.getElementById('ttsPlay');
+      var pauseBtn = document.getElementById('ttsPause');
+      var stopBtn = document.getElementById('ttsStop');
+      var settingsBtn = document.getElementById('ttsSettingsBtn');
+      var settingsPanel = document.getElementById('ttsSettings');
+      var voiceSel = document.getElementById('ttsVoice');
+      var rateRange = document.getElementById('ttsRate');
+      var pitchRange = document.getElementById('ttsPitch');
+      var volRange = document.getElementById('ttsVolume');
+      var rateVal = document.getElementById('ttsRateVal');
+      var pitchVal = document.getElementById('ttsPitchVal');
+      var volVal = document.getElementById('ttsVolumeVal');
+      var getVoiceBtn = document.getElementById('ttsGetVoice');
+      var statusEl = document.getElementById('ttsStatus');
+      var snippetEl = document.getElementById('ttsSnippet');
+      // txt/md 읽기 창(open-text-window)에는 <pre>가 있어 그 안에서 실제로 하이라이트할 수 있지만,
+      // 저장된 기사 읽기 창(open-link-window)은 <p> 여러 개로 구조가 달라 <pre>가 없다 - 그런 경우엔
+      // preEl이 null이 되어 아래에서 자동으로 건너뛰고, 버튼바 밑 한 줄짜리 스니펫(ttsSnippet)만 쓴다.
+      var preEl = document.querySelector('pre');
+      var preOriginalHtml = preEl ? preEl.innerHTML : null;
+      var saved = {}; // ttsAPI(설정 저장 통로)가 없는 예전 창/오류 상황에서도 안전하게 동작하도록 빈 값으로 시작
+      var hasNativeApi = !!(window.ttsAPI && window.ttsAPI.nativeSpeak);
+
+      function setStatus(t){ statusEl.textContent = t; }
+      function escapeForHi(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function clearHighlight(){
+        if (preEl && preOriginalHtml !== null) preEl.innerHTML = preOriginalHtml;
+        if (snippetEl) snippetEl.innerHTML = '';
+      }
+      function highlightRange(pos, len){
+        if (!fullText) return;
+        pos = Math.max(0, Math.min(pos, fullText.length));
+        len = Math.max(0, Math.min(len, fullText.length - pos));
+        var before = fullText.slice(0, pos);
+        var chunk = fullText.slice(pos, pos + len);
+        var after = fullText.slice(pos + len);
+        if (snippetEl) {
+          var ctxBefore = before.slice(-30).replace(/\\s+/g, ' ');
+          var shown = chunk.length > 90 ? chunk.slice(0, 90).replace(/\\s+/g, ' ') + '…' : chunk.replace(/\\s+/g, ' ');
+          snippetEl.innerHTML = '…' + escapeForHi(ctxBefore) + '<mark class="ttsHi">' + escapeForHi(shown) + '</mark>';
+        }
+        if (preEl) {
+          preEl.innerHTML = escapeForHi(before) + '<mark class="ttsHi" id="ttsHiMark">' + escapeForHi(chunk) + '</mark>' + escapeForHi(after);
+          var markEl = document.getElementById('ttsHiMark');
+          if (markEl) {
+            var r = markEl.getBoundingClientRect();
+            if (r.top < 80 || r.bottom > window.innerHeight - 40) markEl.scrollIntoView({ block: 'center', behavior: 'auto' });
+          }
+        }
+      }
+      // 2026-07-22(4차): "읽는 위치 표시"를 문장/줄 단위로 잘라 조각마다 SPEAK를 반복 호출하고
+      // PowerShell의 State 폴링(DONE 감지)으로 진행을 따라가는 방식으로 두 번 만들었는데, 둘 다
+      // 결국 문제가 있었다. 짧은 조각(제목 한 줄, "①" 같은 표시 등)은 실제 재생이 순식간에 끝나서
+      // 폴링 주기(30ms)보다 빨리 끝나버리면, PowerShell 쪽이 "재생 중"이라는 상태 자체를 한 번도
+      // 못 보고 지나친다. 그 사이 일시정지를 누르면 "지금 재생 중인 게 없다"는 오류가 돌아와
+      // 화면이 초기화되고, 결국 일시정지가 안 먹는 것처럼 보였다. 조각을 굵게 잘라도, PC 성능이나
+      // 음성 엔진에 따라 같은 문제가 다시 나타날 수 있는 구조적인 한계였다.
+      // 그래서 이번엔 접근을 바꾼다: PowerShell 쪽에는 조각 없이 문서 전체를 한 번에 읽게 하고(이
+      // 방식은 지금까지 한 번도 문제가 없었다), "지금 읽는 위치"는 재생 속도로 추정한 위치를
+      // 타이머로 따라가며 표시한다. 정확히 단어 단위까지 딱 맞지는 않지만, 재생 자체(재생/일시정지/
+      // 정지)는 PowerShell의 정밀한 조각별 상태 추적에 더 이상 의존하지 않으므로 훨씬 안정적이다.
+      function resetUi(){ playBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true; pauseBtn.textContent = '⏸ 일시정지'; stopEstimate(); }
+
+      // 한국어 TTS 기준 대략적인 초당 글자 수 - 정확한 값이 아니라 "위치를 대충 따라가기" 위한 추정치.
+      var ESTIMATE_CPS_BASE = 7;
+      var estTimer = null;
+      var estStartTs = 0;      // 이번에 재생/재개된 시점(Date.now())
+      var estElapsedMs = 0;    // 일시정지 이전까지 누적된 재생 시간(ms)
+      function estimatedCps(){
+        var rate = parseFloat(rateRange.value); if (isNaN(rate) || rate <= 0) rate = 1;
+        return ESTIMATE_CPS_BASE * rate;
+      }
+      function tickEstimate(){
+        if (!fullText) return;
+        var elapsedMs = estElapsedMs + (Date.now() - estStartTs);
+        var pos = Math.floor((elapsedMs / 1000) * estimatedCps());
+        if (pos >= fullText.length) return; // 문서 끝을 넘어서면(추정이라 DONE보다 먼저 넘을 수 있음) 더는 갱신 안 함
+        try { highlightRange(pos, Math.min(40, fullText.length - pos)); } catch (err) { console.log('[HIGHLIGHT-ERR]', err); }
+      }
+      function startEstimate(){
+        estStartTs = Date.now();
+        if (estTimer) clearInterval(estTimer);
+        estTimer = setInterval(tickEstimate, 200);
+        tickEstimate();
+      }
+      function pauseEstimate(){
+        if (estTimer) { clearInterval(estTimer); estTimer = null; }
+        estElapsedMs += Date.now() - estStartTs;
+      }
+      function stopEstimate(){
+        if (estTimer) { clearInterval(estTimer); estTimer = null; }
+        estElapsedMs = 0;
+        clearHighlight();
+      }
+      function speakAll(){
+        var rate = parseFloat(rateRange.value); if (isNaN(rate)) rate = 1;
+        var pitch = parseFloat(pitchRange.value); if (isNaN(pitch)) pitch = 1;
+        var volume = parseFloat(volRange.value); if (isNaN(volume)) volume = 1;
+        window.ttsAPI.nativeSpeak({ text: fullText, voiceName: voiceSel.value, rate: rate, pitch: pitch, volume: volume }).then(function(res){
+          if (!res || !res.success) { resetUi(); setStatus('재생 실패: ' + ((res && res.error) || '')); }
+        });
+      }
+
+      settingsBtn.addEventListener('click', function(){
+        settingsPanel.classList.toggle('show');
+        settingsBtn.classList.toggle('active', settingsPanel.classList.contains('show'));
+      });
+
+      // 음성 목록을 브라우저(speechSynthesis.getVoices)가 아니라 윈도우에 설치된 SAPI5 음성
+      // 전체를 PowerShell로 직접 조회해서 채운다 - 크롬이 걸러내는 음성도 여기엔 다 나온다.
+      function populateVoices(){
+        if (!hasNativeApi) return;
+        window.ttsAPI.nativeListVoices().then(function(res){
+          var names = (res && res.success && res.voices) ? res.voices : [];
+          var sorted = names.slice().sort(function(a, b){ return a.localeCompare(b); });
+          var prevValue = voiceSel.value || saved.voiceName || '';
+          voiceSel.innerHTML = '<option value="">(시스템 기본 음성)</option>' + sorted.map(function(name){
+            var esc = name.replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            return '<option value="' + esc + '">' + esc + '</option>';
+          }).join('');
+          if (prevValue && sorted.indexOf(prevValue) >= 0) voiceSel.value = prevValue;
+          if (!res || !res.success) setStatus('음성 목록을 불러오지 못했습니다: ' + ((res && res.error) || ''));
+        }).catch(function(){ setStatus('음성 목록을 불러오지 못했습니다.'); });
+      }
+      populateVoices();
+
+      function applyLoadedSettings(cfg){
+        saved = cfg || {};
+        if (saved.rate) { rateRange.value = saved.rate; }
+        if (saved.pitch) { pitchRange.value = saved.pitch; }
+        if (typeof saved.volume === 'number') { volRange.value = saved.volume; }
+        rateVal.textContent = parseFloat(rateRange.value).toFixed(1) + 'x';
+        pitchVal.textContent = parseFloat(pitchRange.value).toFixed(1);
+        volVal.textContent = Math.round(parseFloat(volRange.value) * 100) + '%';
+        if (saved.voiceName) populateVoices();
+      }
+      // 지난번에 저장해둔 음성/속도/음높이/볼륨을 불러와 이 창에도 그대로 적용한다(설정은 문서마다가 아니라 앱 전체 공용).
+      if (window.ttsAPI && window.ttsAPI.getConfig) {
+        window.ttsAPI.getConfig().then(applyLoadedSettings).catch(function(){});
+      }
+
+      function persist(partial){
+        Object.assign(saved, partial);
+        if (window.ttsAPI && window.ttsAPI.setConfig) window.ttsAPI.setConfig(partial).catch(function(){});
+      }
+      rateRange.addEventListener('input', function(){ rateVal.textContent = parseFloat(rateRange.value).toFixed(1) + 'x'; });
+      rateRange.addEventListener('change', function(){ persist({ rate: parseFloat(rateRange.value) }); });
+      pitchRange.addEventListener('input', function(){ pitchVal.textContent = parseFloat(pitchRange.value).toFixed(1); });
+      pitchRange.addEventListener('change', function(){ persist({ pitch: parseFloat(pitchRange.value) }); });
+      volRange.addEventListener('input', function(){ volVal.textContent = Math.round(parseFloat(volRange.value) * 100) + '%'; });
+      volRange.addEventListener('change', function(){ persist({ volume: parseFloat(volRange.value) }); });
+      voiceSel.addEventListener('change', function(){ persist({ voiceName: voiceSel.value }); });
+      getVoiceBtn.addEventListener('click', function(){
+        if (window.ttsAPI && window.ttsAPI.openVoiceSettings) window.ttsAPI.openVoiceSettings();
+        else setStatus('이 창에서는 윈도우 설정을 열 수 없습니다.');
+      });
+
+      if (!hasNativeApi || !fullText.trim()) {
+        playBtn.disabled = true;
+        setStatus(fullText.trim() ? '이 창에서는 음성 읽기를 지원하지 않습니다.' : '읽을 내용이 없습니다.');
+      } else {
+        if (window.ttsAPI.onNativeStatus) {
+          window.ttsAPI.onNativeStatus(function(status){
+            console.log('[tts-native-status]', status);
+            if (status === 'SPEAKING') {
+              playBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false;
+              pauseBtn.textContent = '⏸ 일시정지'; setStatus('읽는 중...');
+              startEstimate(); // 재생 시작이든, 일시정지 후 재개든 여기서 공통으로 처리된다
+            } else if (status === 'PAUSED') {
+              pauseBtn.textContent = '▶ 이어읽기'; setStatus('일시정지됨');
+              pauseEstimate();
+            } else if (status === 'DONE') {
+              resetUi(); setStatus('읽기 완료');
+            } else if (status === 'STOPPED') {
+              resetUi(); setStatus('정지됨');
+            } else if (status && status.indexOf('ERROR') === 0) {
+              resetUi(); setStatus('오류: ' + status.slice(status.indexOf(':') + 1));
+            }
+          });
+        }
+        playBtn.addEventListener('click', function(){
+          setStatus('읽는 중...');
+          playBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false;
+          speakAll();
+        });
+        pauseBtn.addEventListener('click', function(){
+          // 클릭 자체가 안 먹히는 건지, 클릭은 되는데 뒷단이 문제인 건지 구분하려는 진단용 로그 -
+          // IPC 응답을 기다리지 않고 클릭 즉시 무조건 찍힌다.
+          console.log('[PAUSE-CLICKED] disabled=', pauseBtn.disabled, 'label=', pauseBtn.textContent);
+          var call = (pauseBtn.textContent.indexOf('이어읽기') >= 0) ? window.ttsAPI.nativeResume() : window.ttsAPI.nativePause();
+          // 실패했을 때 오류 문구만 띄우고 버튼 상태는 그대로 두면, 재생 중이던 모습(비활성화된
+          // 버튼들) 그대로 멈춰버린다. 뒷단 세션 상태를 더는 신뢰할 수 없으니, 실패 시엔 무조건
+          // 처음(정지된) 상태로 되돌려 최소한 "읽기"는 다시 누를 수 있게 한다.
+          call.then(function(res){
+            console.log('[PAUSE-RESULT]', res);
+            if (res && res.success === false) { setStatus('오류: ' + res.error); resetUi(); }
+          }).catch(function(err){
+            console.log('[PAUSE-ERR]', err); setStatus('오류: ' + err.message); resetUi();
+          });
+        });
+        stopBtn.addEventListener('click', function(){
+          console.log('[STOP-CLICKED] disabled=', stopBtn.disabled);
+          // "정지"는 사용자 입장에서 결과가 항상 "안 읽는 상태"여야 하므로, 백엔드 응답을 기다리지
+          // 않고 클릭 즉시 화면부터 정리한다(낙관적 갱신) - 실제 백엔드 정지는 그 뒤에 이어서
+          // 요청하되, 거기서 나는 오류는 화면에 영향 없이 콘솔에만 남긴다.
+          resetUi();
+          setStatus('정지됨');
+          window.ttsAPI.nativeStop().then(function(res){
+            console.log('[STOP-RESULT]', res);
+            if (res && res.success === false) console.log('[STOP-SOFT-ERR]', res.error);
+          }).catch(function(err){ console.log('[STOP-ERR]', err); });
+        });
+        window.addEventListener('beforeunload', function(){ window.ttsAPI.nativeStop(); });
+      }
+    })();<\/script>`;
+}
+
 let linkWindows = [];
 ipcMain.handle('open-link-window', (e, { filePath }) => {
   try {
@@ -907,6 +1307,9 @@ ipcMain.handle('open-link-window', (e, { filePath }) => {
     const bodyHtml = (data.paragraphs && data.paragraphs.length)
       ? data.paragraphs.map(p => `<p>${escapeHtmlMain(p)}</p>`).join('\n')
       : `<p class="muted">${escapeHtmlMain(data.excerpt || '본문을 자동으로 가져오지 못했습니다. 아래 원문 링크에서 확인해 주세요.')}</p>`;
+    // TTS로 읽을 순수 텍스트 - 제목 + 문단(있으면)만. 요약(excerpt)만 있는 경우엔 그것만 읽는다.
+    const ttsText = [data.title, ...((data.paragraphs && data.paragraphs.length) ? data.paragraphs : (data.excerpt ? [data.excerpt] : []))]
+      .filter(Boolean).join('\n\n');
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       body{margin:0;background:#1b1b1b;color:#e8e8e8;font-family:"Malgun Gothic",system-ui,sans-serif;line-height:1.7;}
       .wrap{max-width:720px;margin:0 auto;padding:28px 24px 60px;}
@@ -916,23 +1319,27 @@ ipcMain.handle('open-link-window', (e, { filePath }) => {
       p.muted{color:#999;font-style:italic;}
       a.src{display:inline-block;margin-top:10px;color:#6a9bd8;text-decoration:none;font-size:13px;}
       a.src:hover{text-decoration:underline;}
+      ${ttsCss()}
       </style></head><body><div class="wrap">
       <h1>${escapeHtmlMain(data.title || '')}</h1>
+      ${ttsBarHtml()}
       ${data.image ? `<img class="hero" src="${escapeHtmlMain(data.image)}">` : ''}
       ${bodyHtml}
       <a class="src" href="${escapeHtmlMain(data.url)}" target="_blank">원문에서 보기 ↗</a>
-      </div></body></html>`;
+      </div>${ttsScript(ttsText)}</body></html>`;
 
     const win = new BrowserWindow({
       width: 760, height: 880, title: data.title || '읽기 모드',
       ...(centeredPosOnMain(760, 880) || {}),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'tts-reader-preload.js') }
     });
     win.setMenuBarVisibility(false);
     // 본문 안의 "원문에서 보기" 링크(target=_blank)는 앱 안에 새 창을 띄우는 대신 기본 브라우저로 연다
     win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
     linkWindows.push(win);
-    win.on('closed', () => { linkWindows = linkWindows.filter(w => w !== win); });
+    const wcId2 = win.webContents.id;
+    win.on('closed', () => { linkWindows = linkWindows.filter(w => w !== win); killTtsNativeProcess(wcId2); });
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
