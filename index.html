@@ -2124,6 +2124,7 @@ function showThumbContextMenu(x, y) {
       ...(kind === 'model' ? [{ label: '📦 OBJ 배치 뷰어에서 열기', action: () => ipcRenderer.invoke('open-in-obj-placer', [absPath]) }] : []),
       { label: isFav ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기', action: () => toggleFavorite(absPath) },
       { label: '✎ 이름 바꾸기', action: () => renameFile(absPath) },
+      ...(kind === 'miniwin' ? [{ label: '🔗 주소 변경', action: () => changeMiniwinUrl(absPath) }] : []),
       { label: '탐색기에서 보기', action: () => ipcRenderer.invoke('show-in-explorer', absPath) },
       { sep: true },
       { label: '✂ 잘라내기', action: () => cutFilesToClipboard([absPath]) },
@@ -2381,6 +2382,7 @@ function renderDetail() {
     <div>
       <button id="btnFav">${isFav ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기'}</button>
       <button id="btnRename">✎ 이름 바꾸기</button>
+      ${kind === 'miniwin' ? '<button id="btnMiniwinChangeUrl">🔗 주소 변경</button>' : ''}
       <button id="btnShowExplorer">탐색기에서 보기</button>
       ${kind !== 'image' ? '<button id="btnOpenExternal">앱으로 열기</button>' : ''}
       ${isEditableDoc ? '<button id="btnEditDoc">편집</button>' : ''}
@@ -2500,6 +2502,8 @@ function renderDetail() {
 
   document.getElementById('btnFav').onclick = () => toggleFavorite(selectedPath);
   document.getElementById('btnRename').onclick = () => renameFile(selectedPath);
+  const btnMiniwinChangeUrl = document.getElementById('btnMiniwinChangeUrl');
+  if (btnMiniwinChangeUrl) btnMiniwinChangeUrl.onclick = () => changeMiniwinUrl(selectedPath);
   document.getElementById('btnShowExplorer').onclick = () => ipcRenderer.invoke('show-in-explorer', selectedPath);
   document.getElementById('btnTrash').onclick = () => trashImageAt(selectedPath);
 }
@@ -2535,6 +2539,18 @@ async function renameFile(absPath) {
   if (selectedPaths.has(absPath)) { selectedPaths.delete(absPath); selectedPaths.add(r.path); }
   await refreshTreeAndImages();
   renderDetail();
+}
+
+// 미니창 항목이 연결된 주소(URL) 변경 (2026-07-22 추가) - 이름/썸네일은 그대로 두고 클릭 시
+// 열리는 사이트 주소만 바꾼다. 상세 패널 버튼과 그리드 우클릭 메뉴가 공통으로 사용.
+async function changeMiniwinUrl(absPath) {
+  const item = allImagesCache.find(i => i.path === absPath) || {};
+  const newUrl = await showPromptDialog('새 주소 (URL)', item.miniwinUrl || '');
+  if (!newUrl || newUrl === item.miniwinUrl) return;
+  const r = await ipcRenderer.invoke('update-mini-window-ref', { path: absPath, url: newUrl.trim() });
+  if (!r.success) { alert('주소 변경 실패: ' + r.error); return; }
+  await refreshTreeAndImages();
+  if (selectedPath === absPath) renderDetail();
 }
 
 // 파일을 휴지통으로 이동 - 상세 패널 버튼과 그리드 우클릭 메뉴가 공통으로 사용

@@ -469,6 +469,19 @@ ipcMain.handle('save-mini-window-ref', (e, { destDir, url, title }) => {
   }
 });
 
+// 이미 저장된 미니창 항목의 연결 주소만 바꿔치기 (2026-07-22 추가) - 그리드 우클릭/상세 패널의
+// "주소 변경"에서 사용. 제목/추가일 등 기존 메타데이터는 그대로 두고 url 필드만 덮어쓴다.
+ipcMain.handle('update-mini-window-ref', (e, { path: targetPath, url }) => {
+  try {
+    const meta = JSON.parse(fs.readFileSync(targetPath, 'utf-8'));
+    meta.url = url;
+    fs.writeFileSync(targetPath, JSON.stringify(meta, null, 2));
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // 미니창 항목 추가 모달의 "파일 선택" 버튼용 - 이미지 하나를 골라 base64로 돌려주면, 렌더러가
 // 저장 전 미리보기에 쓰고, 실제 저장 시 썸네일 캐시 파일로 써넣는다.
 ipcMain.handle('pick-thumbnail-file', async () => {
