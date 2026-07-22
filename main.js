@@ -329,6 +329,67 @@ ipcMain.handle('git-pull', async () => {
   };
 });
 
+// ---- 전체 앱 코드저장/받기 (2026-07-23) ----
+// 레퍼런스 라이브러리가 사실상 런처 역할을 하므로, 여기서 8개 앱 폴더를 전부 돌면서 git 명령을
+// 실행한다. 각 앱 폴더는 이 폴더(reference-library)와 형제 폴더라는 점만 가정하므로(즉 상위 폴더
+// 구조만 같으면), 컴퓨터마다 드라이브 문자나 절대경로가 달라도(집 D드라이브/회사 C드라이브 등)
+// 항상 정확히 찾는다 - __dirname 기준 상대경로라서다.
+const GIT_ALL_PARENT_DIR = path.join(__dirname, '..');
+const GIT_ALL_APPS = [
+  { name: '레퍼런스 라이브러리', dir: __dirname },
+  { name: '크로키 앱', dir: path.join(GIT_ALL_PARENT_DIR, 'croquis_player_v2', 'croquis') },
+  { name: '커브 원근 그리드', dir: path.join(GIT_ALL_PARENT_DIR, 'curvilinear-perspective-grid') },
+  { name: 'OBJ 배치 뷰어', dir: path.join(GIT_ALL_PARENT_DIR, 'curvilinear-obj-placer') },
+  { name: 'SetPose 임베드', dir: path.join(GIT_ALL_PARENT_DIR, 'setpose-embed') },
+  { name: '데스크탑 시계', dir: path.join(GIT_ALL_PARENT_DIR, 'desktop-clock', 'clock-app') },
+  { name: '포스트잇', dir: path.join(GIT_ALL_PARENT_DIR, 'sticky-notes', 'sticky-notes') },
+  { name: '3D 뷰어', dir: path.join(GIT_ALL_PARENT_DIR, 'obj-viewer-app', '3d-viewer') },
+];
+function runGitCommandIn(dir, args) {
+  return new Promise((resolve) => {
+    const proc = spawn('git', args, { cwd: dir, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+    proc.on('close', (code) => resolve({ success: code === 0, code, stdout, stderr }));
+    proc.on('error', (err) => resolve({ success: false, code: -1, stdout, stderr: err.message }));
+  });
+}
+ipcMain.handle('git-save-all', async () => {
+  const results = [];
+  for (const appInfo of GIT_ALL_APPS) {
+    if (!fs.existsSync(appInfo.dir) || !fs.existsSync(path.join(appInfo.dir, '.git'))) {
+      results.push({ name: appInfo.name, success: false, message: '폴더를 못 찾았거나 git 저장소가 아님 (건너뜀)' });
+      continue;
+    }
+    const msg = `수정 ${new Date().toLocaleString('ko-KR')}`;
+    const add = await runGitCommandIn(appInfo.dir, ['add', '-A']);
+    if (!add.success) { results.push({ name: appInfo.name, success: false, message: 'git add 실패: ' + (add.stderr || add.stdout || '알 수 없는 오류').trim() }); continue; }
+    const commit = await runGitCommandIn(appInfo.dir, ['commit', '-m', msg]);
+    const nothingToCommit = /nothing to commit/i.test(commit.stdout + commit.stderr);
+    if (!commit.success && !nothingToCommit) { results.push({ name: appInfo.name, success: false, message: 'git commit 실패: ' + (commit.stderr || commit.stdout || '알 수 없는 오류').trim() }); continue; }
+    const push = await runGitCommandIn(appInfo.dir, ['push']);
+    if (!push.success) { results.push({ name: appInfo.name, success: false, message: 'git push 실패: ' + (push.stderr || push.stdout || '알 수 없는 오류').trim() }); continue; }
+    results.push({ name: appInfo.name, success: true, message: nothingToCommit ? '변경 없음(이미 최신)' : '저장 완료' });
+  }
+  return results;
+});
+ipcMain.handle('git-pull-all', async () => {
+  const results = [];
+  for (const appInfo of GIT_ALL_APPS) {
+    if (!fs.existsSync(appInfo.dir) || !fs.existsSync(path.join(appInfo.dir, '.git'))) {
+      results.push({ name: appInfo.name, success: false, message: '폴더를 못 찾았거나 git 저장소가 아님 (건너뜀)' });
+      continue;
+    }
+    const pull = await runGitCommandIn(appInfo.dir, ['pull']);
+    if (!pull.success) { results.push({ name: appInfo.name, success: false, message: 'git pull 실패: ' + (pull.stderr || pull.stdout || '알 수 없는 오류').trim() }); continue; }
+    const upToDate = /Already up to date/i.test(pull.stdout);
+    results.push({ name: appInfo.name, success: true, message: upToDate ? '이미 최신' : '받기 완료' });
+  }
+  return results;
+});
+
 // ---- 라이브러리 루트 선택 ----
 ipcMain.handle('select-library-root', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });

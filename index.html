@@ -250,6 +250,8 @@
     <span id="gitToolGroup" style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; padding-left:14px; border-left:1px solid #444;">
       <button id="btnGitSave" title="지금까지 고친 코드를 GitHub에 저장합니다(git add·commit·push)">💾 코드저장</button>
       <button id="btnGitPull" title="다른 컴퓨터에서 저장한 최신 코드를 받아옵니다(git pull) - 작업 시작 전에 눌러주세요">⬇ 코드받기</button>
+      <button id="btnGitSaveAll" title="레퍼런스 라이브러리뿐 아니라 크로키·그리드·OBJ 배치·SetPose·시계·포스트잇·3D 뷰어까지 8개 앱을 전부 GitHub에 저장합니다">🗂 전체 코드저장</button>
+      <button id="btnGitPullAll" title="8개 앱 전부 최신 코드를 받아옵니다 - 작업 시작 전에 눌러주세요">🗂 전체 코드받기</button>
     </span>
     <span id="aiToolGroup" style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; padding-left:14px; border-left:1px solid #444;">
       <button id="btnAiTextSearch" title="한글 문장으로 이미지를 검색합니다 (AI, 인덱싱된 이미지 대상)">🔎 AI 검색</button>
@@ -499,6 +501,33 @@ document.getElementById('btnGitPull').addEventListener('click', async (ev) => {
   try {
     const r = await ipcRenderer.invoke('git-pull');
     alert(r.message);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+// 전체 앱 코드저장/코드받기 (2026-07-23) - 레퍼런스 라이브러리 포함 8개 앱을 폴더 하나씩 돌면서 처리.
+// 결과를 앱별로 한 줄씩 모아서 하나의 alert로 보여준다.
+function formatGitAllResults(results) {
+  return results.map(r => `${r.success ? '✅' : '❌'} ${r.name}: ${r.message}`).join('\n');
+}
+document.getElementById('btnGitSaveAll').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 전체 저장 중...';
+  try {
+    const results = await ipcRenderer.invoke('git-save-all');
+    alert('전체 코드저장 결과\n\n' + formatGitAllResults(results));
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+document.getElementById('btnGitPullAll').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 전체 받는 중...';
+  try {
+    const results = await ipcRenderer.invoke('git-pull-all');
+    alert('전체 코드받기 결과\n\n' + formatGitAllResults(results));
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
