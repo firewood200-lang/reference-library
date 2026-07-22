@@ -153,6 +153,58 @@ ipcMain.handle('set-config', (e, cfg) => {
   return true;
 });
 
+// ---- 코드 저장/받기 (git push/pull을 버튼으로) ----
+// 2026-07-22: 이 앱 자체(reference-library 폴더)를 git 저장소로 바꾸면서, 매번 PowerShell을
+// 열어 git 명령을 치는 대신 앱 안 버튼으로도 되게 만든다. git 명령은 이 파일(main.js)이 있는
+// 폴더(__dirname) 기준으로 실행한다 - 그게 곧 git 저장소 루트다.
+function runGitCommand(args) {
+  return new Promise((resolve) => {
+    const proc = spawn('git', args, { cwd: __dirname, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+    proc.on('close', (code) => resolve({ success: code === 0, code, stdout, stderr }));
+    proc.on('error', (err) => resolve({ success: false, code: -1, stdout, stderr: err.message }));
+  });
+}
+ipcMain.handle('git-save', async (e, { message } = {}) => {
+  const msg = (message && message.trim()) ? message.trim() : `수정 ${new Date().toLocaleString('ko-KR')}`;
+  const add = await runGitCommand(['add', '-A']);
+  if (!add.success) return { success: false, message: '변경사항 확인(git add) 실패:\n' + (add.stderr || add.stdout || '알 수 없는 오류') };
+
+  const commit = await runGitCommand(['commit', '-m', msg]);
+  // "nothing to commit"은 실패가 아니라 "바뀐 게 없다"는 정상 상태 - 이 경우에도 아래에서 push는 계속 시도한다
+  // (다른 컴퓨터에서 이미 커밋해둔 게 아직 안 올라간 상태일 수 있어서).
+  const nothingToCommit = /nothing to commit/i.test(commit.stdout + commit.stderr);
+  if (!commit.success && !nothingToCommit) {
+    return { success: false, message: '저장(git commit) 실패:\n' + (commit.stderr || commit.stdout || '알 수 없는 오류') };
+  }
+
+  const push = await runGitCommand(['push']);
+  if (!push.success) {
+    return { success: false, message: 'GitHub 업로드(git push) 실패:\n' + (push.stderr || push.stdout || '알 수 없는 오류') };
+  }
+
+  return {
+    success: true,
+    message: nothingToCommit
+      ? '바뀐 내용이 없어서 저장할 게 없습니다. (이미 최신 상태)'
+      : 'GitHub에 정상적으로 저장되었습니다.',
+  };
+});
+ipcMain.handle('git-pull', async () => {
+  const pull = await runGitCommand(['pull']);
+  if (!pull.success) {
+    return { success: false, message: '최신 코드 받아오기(git pull) 실패:\n' + (pull.stderr || pull.stdout || '알 수 없는 오류') };
+  }
+  const upToDate = /Already up to date/i.test(pull.stdout);
+  return {
+    success: true,
+    message: upToDate ? '이미 최신 상태입니다.' : ('최신 코드를 정상적으로 받아왔습니다.\n\n' + pull.stdout.trim()),
+  };
+});
+
 // ---- 라이브러리 루트 선택 ----
 ipcMain.handle('select-library-root', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });

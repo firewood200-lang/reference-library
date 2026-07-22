@@ -247,6 +247,10 @@
     <button id="btnAddMiniwin" title="미니창으로 보던 사이트를 썸네일과 함께 라이브러리에 저장합니다 (더블클릭하면 다시 미니창으로 열립니다)">미니창 항목 추가</button>
     <button id="btnNewFolder">새 폴더</button>
     <button id="btnReconnectObjViewer" title="obj 파일 더블클릭 시 열리는 3D 뷰어 프로그램을 다시 선택합니다">OBJ 뷰어 재연결</button>
+    <span id="gitToolGroup" style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; padding-left:14px; border-left:1px solid #444;">
+      <button id="btnGitSave" title="지금까지 고친 코드를 GitHub에 저장합니다(git add·commit·push)">💾 코드저장</button>
+      <button id="btnGitPull" title="다른 컴퓨터에서 저장한 최신 코드를 받아옵니다(git pull) - 작업 시작 전에 눌러주세요">⬇ 코드받기</button>
+    </span>
     <span id="aiToolGroup" style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; padding-left:14px; border-left:1px solid #444;">
       <button id="btnAiTextSearch" title="한글 문장으로 이미지를 검색합니다 (AI, 인덱싱된 이미지 대상)">🔎 AI 검색</button>
       <button id="btnAiIndex" title="현재 라이브러리에서 아직 AI 인덱싱 안 된 이미지를 인덱싱합니다">🔄 AI 인덱싱 실행</button>
@@ -472,6 +476,32 @@ document.getElementById('btnQlClock').addEventListener('click', async () => {
 document.getElementById('btnQlStickyNotes').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('open-sticky-notes');
   if (!r.success) alert('포스트잇 앱 실행 실패: ' + r.error);
+});
+// 코드저장/코드받기: git push/pull을 버튼으로 대신한다(PowerShell 창을 직접 열지 않아도 되게).
+// 실행 중 중복 클릭을 막고 무슨 상태인지 보이도록 버튼 글자를 잠깐 바꿔둔다.
+document.getElementById('btnGitSave').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  const msg = await showPromptDialog('이번에 뭘 고쳤는지 한 줄로 적어주세요 (비워두면 자동으로 시간이 들어갑니다)');
+  if (msg === null) return; // 취소
+  btn.disabled = true; btn.textContent = '⏳ 저장 중...';
+  try {
+    const r = await ipcRenderer.invoke('git-save', { message: msg });
+    alert(r.message);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+document.getElementById('btnGitPull').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 받는 중...';
+  try {
+    const r = await ipcRenderer.invoke('git-pull');
+    alert(r.message);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
 });
 document.getElementById('btnQlUpscayl').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('open-upscayl');
