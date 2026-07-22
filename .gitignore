@@ -1,0 +1,14 @@
+# 무거운 파일 - 각 컴퓨터(집/회사)에 한 번씩만 준비해두고 git으로는 옮기지 않는다.
+node_modules/
+
+# AI 비전 모델 가중치(336MB) - 자주 안 바뀌고 GitHub 100MB 제한도 넘는다.
+# preprocess_cfg.json은 작고 자주 바뀔 수 있어 계속 추적한다.
+ai-model/visual/model.onnx
+
+# 예전 세션에서 만든 일회성 복구 백업 - git이 이제 진짜 변경 이력을 대신 관리하므로 더는 안 쌓는다.
+_backup_pre_ai_search/
+main.js.corrupted-backup-*
+
+# OS/에디터 잡파일
+Thumbs.db
+.DS_Store

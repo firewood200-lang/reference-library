@@ -1,0 +1,19 @@
+{
+  "name": "reference-library",
+  "version": "0.1.0",
+  "description": "레퍼런스 이미지 라이브러리",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npx electron-packager . ReferenceLibrary --platform=win32 --arch=x64 --out=dist --overwrite --ignore=dist"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.19.2",
+    "sharp": "^0.33.5",
+    "@huggingface/transformers": "^3.0.0"
+  }
+}

@@ -1,0 +1,2610 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>레퍼런스 라이브러리</title>
+<style>
+  * { box-sizing: border-box; }
+  html {
+    --thumb-size: 150px; --sidebar-w: 260px; --detail-w: 300px;
+    /* 통일된 디자인 토큰 - 색/여백/모서리를 여기서만 관리해서 앱 전체가 같은 느낌을 갖게 한다 */
+    --bg-0:#17181c; --bg-1:#1d1f24; --bg-2:#25272e; --bg-3:#2e3038; --bg-4:#383a43;
+    --border:#34363f; --border-soft:rgba(255,255,255,.06);
+    --text-0:#eceef3; --text-1:#a7abb8; --text-2:#71757f;
+    --accent:#6f93f2; --accent-dim:#4f6cc4; --accent-soft:rgba(111,147,242,.16); --accent-soft-strong:rgba(111,147,242,.28);
+    --danger:#e5595e; --danger-soft:rgba(229,89,94,.18); --warn:#e6b566;
+    --radius-lg:12px; --radius-md:9px; --radius-sm:6px;
+    --shadow-md:0 8px 24px rgba(0,0,0,.35); --shadow-sm:0 2px 8px rgba(0,0,0,.25);
+  }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg-0); color:var(--text-0); font-family:'Segoe UI','Malgun Gothic',sans-serif; font-size:13px; overflow:hidden; }
+  #app { display:flex; flex-direction:column; height:100vh; }
+  body.drag-hover #app { outline:3px dashed var(--accent); outline-offset:-3px; }
+
+  /* ---- 스크롤바 (요청사항: 투박한 기본 스크롤바를 얇고 둥근 스타일로) ---- */
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--bg-4); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#4a4d58; background-clip:padding-box; }
+  ::-webkit-scrollbar-corner { background:transparent; }
+
+  /* 기본 회색 OS 제목표시줄/메뉴바 대신 쓰는 커스텀 타이틀바 - 나머지 UI와 같은 어두운 톤으로 통일 */
+  #titlebar { display:flex; align-items:center; height:34px; padding:0 0 0 12px; background:var(--bg-0); border-bottom:1px solid var(--border); -webkit-app-region:drag; flex-shrink:0; }
+  #titlebarTitle { font-size:12px; color:var(--text-1); letter-spacing:.02em; }
+  #titlebarSpace { flex:1; -webkit-app-region:drag; }
+  #titlebarControls { display:flex; height:100%; -webkit-app-region:no-drag; }
+  .tb-btn {
+    width:44px; height:100%; border:0; background:transparent; color:var(--text-1); cursor:pointer;
+    font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center; transition:background .1s ease, color .1s ease;
+  }
+  .tb-btn:hover { background:var(--bg-3); color:var(--text-0); }
+  .tb-btn.tb-close:hover { background:var(--danger); color:#fff; }
+
+  #topbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 12px; background:var(--bg-1); border-bottom:1px solid var(--border); -webkit-app-region:drag; }
+  #topbar button, #topbar input, #topbar select { -webkit-app-region:no-drag; }
+  #topbar button {
+    background:var(--bg-3); color:var(--text-0); border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:4px 9px; cursor:pointer; font-size:11.5px; transition:background .12s ease, border-color .12s ease, transform .06s ease;
+    flex-shrink:0; white-space:nowrap;
+  }
+  #topbar button:hover { background:var(--bg-4); border-color:#45484f; }
+  #topbar button:active { transform:translateY(1px); }
+  #rootLabel { color:var(--text-1); font-size:11px; flex:0 0 auto; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #searchInput {
+    flex:1 1 120px; min-width:120px; background:var(--bg-0); border:1px solid var(--border); color:var(--text-0); border-radius:var(--radius-sm);
+    padding:4px 9px; font-size:11.5px; transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  #searchInput:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  #recursiveToggle { display:flex; align-items:center; gap:5px; color:var(--text-1); flex-shrink:0; white-space:nowrap; }
+  #thumbSizeBox { display:flex; align-items:center; gap:6px; color:var(--text-1); flex:0 0 auto; white-space:nowrap; }
+  #thumbSizeBox input[type=range] { width:100px; accent-color:var(--accent); flex-shrink:0; }
+
+  #main { flex:1; display:flex; min-height:0; }
+
+  #sidebar { width:var(--sidebar-w); background:var(--bg-1); border-right:1px solid var(--border); overflow-y:auto; padding:10px 8px; flex-shrink:0; }
+  .smart-item {
+    padding:7px 10px; border-radius:var(--radius-sm); cursor:pointer; display:flex; justify-content:space-between;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-1); position:relative;
+    transition:background .12s ease, color .12s ease;
+  }
+  .smart-item:hover { background:var(--bg-3); color:var(--text-0); }
+  .smart-item.active { background:var(--accent-soft); color:var(--text-0); }
+  .smart-item.active::before { content:''; position:absolute; left:-8px; top:4px; bottom:4px; width:3px; border-radius:3px; background:var(--accent); }
+  .tree-item { display:flex; align-items:center; gap:2px; padding:5px 6px; border-radius:var(--radius-sm); cursor:pointer; position:relative; color:var(--text-1); transition:background .12s ease, color .12s ease; }
+  .tree-item:hover { background:var(--bg-3); color:var(--text-0); }
+  .tree-item.active { background:var(--accent-soft); color:var(--text-0); }
+  .tree-item.active::before { content:''; position:absolute; left:-8px; top:3px; bottom:3px; width:3px; border-radius:3px; background:var(--accent); }
+  .tree-item.drag-over, .pinned-folder-item.drag-over { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-soft-strong); }
+  .tree-toggle { width:14px; flex-shrink:0; color:var(--text-2); cursor:pointer; user-select:none; font-size:10px; text-align:center; }
+  .tree-toggle.empty { visibility:hidden; }
+  .tree-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tree-add-btn { flex-shrink:0; width:17px; height:17px; line-height:17px; text-align:center; border-radius:var(--radius-sm); color:#7fce9a; font-size:13px; cursor:pointer; margin-left:2px; transition:background .12s ease; }
+  .tree-add-btn:hover { background:rgba(127,206,154,.18); color:#a3e6ba; }
+  .tree-actions { display:none; flex-shrink:0; gap:2px; margin-left:4px; }
+  .tree-item:hover .tree-actions { display:flex; }
+  .tree-act { width:17px; height:17px; line-height:17px; text-align:center; border-radius:var(--radius-sm); color:var(--text-1); font-size:12px; cursor:pointer; transition:background .12s ease; }
+  .tree-act:hover { background:var(--bg-4); color:var(--text-0); }
+  .tree-act.del:hover { background:var(--danger-soft); color:#ff9a9d; }
+  .tree-children { margin-left:14px; }
+  .pinned-folder-item { gap:6px; }
+  .count { color:var(--text-2); font-size:11px; flex-shrink:0; }
+  .active .count { color:#cbd7fb; }
+  .section-title { color:var(--text-2); font-size:10.5px; font-weight:600; letter-spacing:.06em; margin:14px 0 5px 6px; text-transform:uppercase; }
+  .tag-chip { display:inline-block; background:var(--bg-3); color:var(--text-1); border:1px solid var(--border-soft); border-radius:20px; padding:3px 10px; margin:2px; font-size:11px; cursor:pointer; transition:background .12s ease, color .12s ease; }
+  .tag-chip:hover { background:var(--bg-4); color:var(--text-0); }
+  .tag-chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  .resizer { width:5px; flex-shrink:0; cursor:col-resize; background:var(--bg-1); position:relative; transition:background .15s ease; }
+  .resizer:hover, .resizer.dragging { background:var(--accent); }
+
+  /* CSS Grid의 열 stretch(1fr)/aspect-ratio 대신 flex-wrap으로 변경 - 칸 너비/높이를 각각 명시적인 px 값으로 고정해서
+     정사각형이 확실히 유지되도록 함 (칸이 얇게 눌려 보이던 문제 방지) */
+  #grid { flex:1; overflow-y:auto; padding:14px; display:flex; flex-wrap:wrap; align-content:flex-start; gap:10px; background:var(--bg-0); }
+  .thumb {
+    width:var(--thumb-size); flex-shrink:0; background:var(--bg-2); border-radius:var(--radius-md); overflow:hidden; cursor:pointer;
+    border:2px solid transparent; position:relative; box-shadow:var(--shadow-sm);
+    transition:transform .1s ease, box-shadow .15s ease, border-color .12s ease;
+  }
+  .thumb:hover { transform:translateY(-2px); box-shadow:var(--shadow-md); }
+  .thumb.selected { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft), var(--shadow-md); }
+  /* 2026-07-20: 잘라내기(Cut) 대기 중인 항목 - 탐색기처럼 흐리게 표시해서 붙여넣기 전까지 "이동 예정"임을 알려준다 */
+  .thumb.cut-pending { opacity:.4; }
+  .thumb img { display:block; width:var(--thumb-size); height:var(--thumb-size); object-fit:cover; background:var(--bg-0); }
+  .thumb .thumb-icon { width:var(--thumb-size); height:var(--thumb-size); display:flex; align-items:center; justify-content:center; font-size:calc(var(--thumb-size) * 0.4); background:var(--bg-0); }
+  .thumb .fname { font-size:10.5px; color:var(--text-1); padding:5px 7px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 기사/링크 카드는 파일명이 아니라 실제 기사 제목이 라벨이라, 한 줄로 잘리면 무슨 내용인지 그리드에서 알 수 없다.
+     제목은 여러 줄로 보이게 하고, 그 아래 요약을 한두 줄 덧붙여 내용을 짐작할 수 있게 한다. */
+  .thumb.kind-link .fname { white-space:normal; font-size:11px; font-weight:600; color:var(--text-0); line-height:1.35; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+  .thumb .fexcerpt { font-size:10px; color:var(--text-2); padding:0 7px 7px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .thumb .fav-badge { position:absolute; top:5px; right:5px; color:#f5c518; font-size:14px; text-shadow:0 0 3px rgba(0,0,0,.6); }
+  #emptyMsg { color:var(--text-2); padding:40px; text-align:center; width:100%; }
+
+  #detail { width:var(--detail-w); background:var(--bg-1); border-left:1px solid var(--border); flex-shrink:0; display:flex; flex-direction:column; min-height:0; }
+  #detailScroll { flex:1; overflow-y:auto; padding:14px; min-height:0; }
+  /* 오른쪽 패널에서 이미지 상세/빈 상태 영역과 바로가기 사이, 늘 비어 있던 자리에 시계를 고정으로 둔다.
+     detailScroll의 내용(이미지 선택 여부)과 무관하게 항상 같은 자리에 보이도록 별도 블록으로 뺐다. */
+  #refClock { flex-shrink:0; padding:16px 14px; text-align:center; border-top:1px solid var(--border); background:var(--bg-2); }
+  #refClockTime { font-family:'Courier New', monospace; font-size:36px; font-weight:700; letter-spacing:.03em; color:var(--text-0); font-variant-numeric:tabular-nums; }
+  #refClockDate { font-size:13px; color:var(--text-2); margin-top:5px; }
+  #apiUsage { flex-shrink:0; padding:10px 14px; border-top:1px solid var(--border); background:var(--bg-2); }
+  #apiUsageTitle { font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--text-2); margin-bottom:6px; display:flex; justify-content:space-between; }
+  #apiUsageBody { display:flex; flex-direction:column; gap:3px; font-size:11.5px; color:var(--text-0); }
+  .au-row { display:flex; justify-content:space-between; gap:8px; }
+  .au-name { color:var(--text-2); }
+  .au-err { color:#e08787; font-size:11px; }
+  #quickLinks { flex-shrink:0; padding:10px 14px 46px; border-top:1px solid var(--border); background:var(--bg-2); }
+  #quickLinksTitle { font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--text-2); margin-bottom:8px; }
+  .ql-row { display:flex; flex-wrap:wrap; gap:6px; }
+  .ql-btn { background:var(--bg-3); color:var(--text-0); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px; cursor:pointer; font-size:11.5px; }
+  .ql-btn:hover { background:var(--bg-4); border-color:#45484f; }
+  .ql-btn.ql-main { font-weight:600; }
+  .ql-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* DesignDoll "항상 위" 토글 - 진짜 스위치처럼 보이도록 눌린 느낌(안쪽 그림자) + 점 표시(꺼짐:회색/켜짐:파란빛)
+     둘 다로 상태를 보여준다. 배경색 하나만 바뀌는 것보다 눈에 잘 띈다. */
+  .ql-btn.dd-toggle { display:inline-flex; align-items:center; gap:6px; }
+  .ql-btn.dd-toggle .dd-dot {
+    width:7px; height:7px; border-radius:50%; flex-shrink:0;
+    background:#6a6d78; box-shadow:inset 0 0 0 1px rgba(0,0,0,.3);
+    transition:background .15s ease, box-shadow .15s ease;
+  }
+  .ql-btn.dd-toggle.active {
+    background:var(--bg-3); border-color:var(--accent); color:var(--text-0);
+    box-shadow:inset 0 1px 4px rgba(0,0,0,.45);
+  }
+  .ql-btn.dd-toggle.active .dd-dot {
+    background:var(--accent); box-shadow:0 0 5px var(--accent), inset 0 0 0 1px rgba(255,255,255,.5);
+  }
+  #miniWinUrlInput {
+    flex:1; min-width:140px; background:var(--bg-1); border:1px solid var(--border); color:var(--text-0);
+    border-radius:var(--radius-sm); padding:6px 8px; font-size:11.5px; font-family:inherit;
+  }
+  #miniWinUrlInput:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  #detail img { width:100%; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-0); box-shadow:var(--shadow-sm); }
+  #detail video { width:100%; max-height:360px; border-radius:var(--radius-md); margin-bottom:10px; background:#000; box-shadow:var(--shadow-sm); }
+  #detail .detail-icon { width:100%; padding:40px 0; text-align:center; font-size:64px; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-2); }
+  #detail .row { margin-bottom:9px; font-size:12px; color:var(--text-1); word-break:break-all; line-height:1.5; }
+  #detail .row b { color:var(--text-0); font-size:13.5px; }
+  #detail label { display:block; color:var(--text-2); font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-bottom:5px; }
+  #detail textarea, #detail input[type=text] {
+    width:100%; background:var(--bg-0); border:1px solid var(--border); color:var(--text-0); border-radius:var(--radius-sm);
+    padding:8px; font-family:inherit; font-size:12.5px; transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  #detail textarea:focus, #detail input[type=text]:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  #detail textarea { min-height:60px; resize:vertical; }
+  #tagList { display:flex; flex-wrap:wrap; gap:5px; margin:8px 0; }
+  #tagList .tag-chip { cursor:default; }
+  #tagList .tag-chip .x { margin-left:5px; cursor:pointer; color:#ff8a8d; }
+  #detail button {
+    background:var(--bg-3); color:var(--text-0); border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:6px 10px; cursor:pointer; margin-right:5px; margin-top:6px; font-size:12px; transition:background .12s ease, border-color .12s ease;
+  }
+  #detail button:hover { background:var(--bg-4); border-color:#45484f; }
+  #noSelection { color:var(--text-2); text-align:center; margin-top:40px; }
+
+  #ctxMenu { position:fixed; z-index:1000; background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-md); padding:5px; box-shadow:var(--shadow-md); display:none; min-width:170px; }
+  #ctxMenu.show { display:block; }
+  .ctx-item { padding:7px 10px; border-radius:var(--radius-sm); cursor:pointer; color:var(--text-0); font-size:12px; white-space:nowrap; transition:background .1s ease; }
+  .ctx-item:hover { background:var(--accent); color:#fff; }
+  .ctx-item.danger:hover { background:var(--danger); color:#fff; }
+  .ctx-sep { height:1px; background:var(--border); margin:5px 3px; }
+
+  /* 오른쪽(상세) 패널 하단에 붙는 오류 로그 - 평소엔 얇게 접혀있다가 오류가 나면 눈에 띄게 표시 */
+  #errorLog { position:fixed; right:0; bottom:0; width:var(--detail-w); max-height:45%; z-index:80; display:flex; flex-direction:column; background:#1c1516; border-top:1px solid #3a2a2a; font-size:11px; }
+  #errorLogHeader { padding:7px 12px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:6px; color:var(--text-2); background:#221818; user-select:none; }
+  #errorLogHeader.hasError { background:#5a1c1c; color:#ffdcdc; }
+  #errorLogTitle { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #errorLogClear { background:var(--bg-3); border:1px solid var(--border); color:var(--text-0); border-radius:var(--radius-sm); padding:3px 8px; cursor:pointer; font-size:10px; flex-shrink:0; }
+  #errorLogClear:hover { background:var(--bg-4); }
+  #errorLogBody { overflow-y:auto; padding:9px 12px; white-space:pre-wrap; word-break:break-all; display:none; border-top:1px solid #3a2a2a; color:#e0b0b0; }
+  #errorLog.open #errorLogBody { display:block; }
+  .errItem { margin-bottom:8px; }
+  .errTime { color:#c98; font-size:10px; margin-bottom:2px; }
+  .errMsg { color:#ffdada; }
+  .errStack { color:#b89; font-size:10px; margin:4px 0 0; white-space:pre-wrap; }
+  .errSep { height:1px; background:#3a2a2a; margin:8px 0; }
+
+  /* window.prompt()가 이 Electron 환경에서 지원되지 않아서(콘솔에 "prompt() is and will not be supported" 오류)
+     자체 입력 모달로 대체 - 새 폴더 만들기/이름 바꾸기에서 사용 */
+  .modal-overlay { position:fixed; inset:0; background:rgba(10,10,12,.6); backdrop-filter:blur(2px); display:none; align-items:center; justify-content:center; z-index:300; }
+  .modal-overlay.show { display:flex; }
+  .modal-box { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; width:300px; box-shadow:var(--shadow-md); }
+  .modal-msg { margin-bottom:10px; color:var(--text-0); font-size:13px; }
+  .modal-box input[type=text] {
+    width:100%; background:var(--bg-0); border:1px solid var(--border); color:var(--text-0); border-radius:var(--radius-sm);
+    padding:8px 9px; margin-bottom:14px; font:inherit; transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  .modal-box input[type=text]:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; }
+  .modal-actions button { background:var(--bg-3); color:var(--text-0); border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 14px; cursor:pointer; transition:background .12s ease; }
+  .modal-actions button:hover { background:var(--bg-4); }
+  /* 미니창 항목 추가 모달의 썸네일 미리보기 - 파일 선택/붙여넣기로 채워지기 전엔 안내 문구만 보인다 */
+  #miniwinThumbBox { display:flex; align-items:center; justify-content:center; height:120px; border:1px dashed var(--border); border-radius:var(--radius-sm); background:var(--bg-0); overflow:hidden; }
+  #miniwinThumbBox img { max-width:100%; max-height:100%; object-fit:contain; }
+  #miniwinThumbPlaceholder { font-size:12px; color:var(--text-2); }
+  #promptOk { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #promptOk:hover { background:var(--accent-dim); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="titlebar">
+    <span id="titlebarTitle">📚 레퍼런스 라이브러리</span>
+    <div id="titlebarSpace"></div>
+    <div id="titlebarControls">
+      <button id="btnWinMin" class="tb-btn" title="최소화">&#xFF0D;</button>
+      <button id="btnWinMax" class="tb-btn" title="최대화">&#x25A1;</button>
+      <button id="btnWinClose" class="tb-btn tb-close" title="닫기">&#xD7;</button>
+    </div>
+  </div>
+  <div id="topbar">
+    <button id="btnSelectRoot">라이브러리 열기</button>
+    <span id="rootLabel">라이브러리를 선택하세요</span>
+    <input id="searchInput" type="text" placeholder="파일명 검색...">
+    <label id="recursiveToggle"><input type="checkbox" id="chkRecursive"> 하위 폴더 포함</label>
+    <span id="thumbSizeBox">썸네일 크기 <input type="range" id="thumbSizeSlider" min="80" max="400" step="10"></span>
+    <button id="btnImport">이미지 추가</button>
+    <button id="btnAddEmbed" title="핀터레스트 등에서 저장이 막힌 동영상은 임베드 코드로 재생 링크만 저장합니다">웹 임베드 추가</button>
+    <button id="btnAddLink" title="뉴스 기사 등 링크 주소를 넣으면 본문을 추출해 읽기 모드로 저장합니다">기사/링크 추가</button>
+    <button id="btnAddMiniwin" title="미니창으로 보던 사이트를 썸네일과 함께 라이브러리에 저장합니다 (더블클릭하면 다시 미니창으로 열립니다)">미니창 항목 추가</button>
+    <button id="btnNewFolder">새 폴더</button>
+    <button id="btnReconnectObjViewer" title="obj 파일 더블클릭 시 열리는 3D 뷰어 프로그램을 다시 선택합니다">OBJ 뷰어 재연결</button>
+    <span id="aiToolGroup" style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; padding-left:14px; border-left:1px solid #444;">
+      <button id="btnAiTextSearch" title="한글 문장으로 이미지를 검색합니다 (AI, 인덱싱된 이미지 대상)">🔎 AI 검색</button>
+      <button id="btnAiIndex" title="현재 라이브러리에서 아직 AI 인덱싱 안 된 이미지를 인덱싱합니다">🔄 AI 인덱싱 실행</button>
+      <span id="aiIndexStatus" style="opacity:.75;"></span>
+    </span>
+  </div>
+  <div id="main">
+    <div id="sidebar">
+      <div class="smart-item" data-smart="all">전체 <span class="count" id="cntAll"></span></div>
+      <div class="smart-item" data-smart="favorites">즐겨찾기 <span class="count" id="cntFav"></span></div>
+      <div class="section-title" id="pinnedTitle" style="display:none;">즐겨찾기 폴더</div>
+      <div id="pinnedFolders"></div>
+      <div class="section-title">폴더</div>
+      <div id="folderTree"></div>
+      <div class="section-title">태그</div>
+      <div id="tagCloud"></div>
+    </div>
+    <div class="resizer" id="resizerLeft"></div>
+    <div id="grid"></div>
+    <div class="resizer" id="resizerRight"></div>
+    <div id="detail">
+      <div id="detailScroll">
+        <div id="noSelection">이미지를 선택하세요</div>
+      </div>
+      <div id="refClock">
+        <div id="refClockTime">00:00:00</div>
+        <div id="refClockDate">-</div>
+      </div>
+      <div id="apiUsage">
+        <div id="apiUsageTitle"><span>API 사용량</span><span id="apiUsageUpdated">-</span></div>
+        <div id="apiUsageBody">불러오는 중...</div>
+      </div>
+      <div id="quickLinks">
+        <div style="font-size:10.5px; color:var(--text-2); margin:0 0 8px; line-height:1.6;">
+          F9: 통과모드 켜기/끄기 (크로키·그리드 앱 공통)<br>
+          G: 참고 이미지 표시/숨기기 (크로키·그리드 앱 공통)<br>
+          Ctrl+Alt+U: 좌우반전 (크로키·그리드·OBJ 배치 뷰어·3D 뷰어·웹 임베드 미니창 공통)<br>
+          Ctrl+Alt+Y: 선택된 창 항상 위로 켜기/끄기 (모든 창 공통)
+        </div>
+        <div class="ql-row">
+          <button class="ql-btn ql-main" data-url="https://ai-webtoon-studio.pages.dev">작가실</button>
+          <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/collective_creativity_tool">집단창의성 도구</button>
+          <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/research_v3">리서치 워크플로우</button>
+          <button class="ql-btn" data-url="https://claude.ai/project/019e76da-4ed3-76e7-be34-90d30912731e">시나리오 프로젝트 방</button>
+          <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/writer-room">작가실 스텝업</button>
+          <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/writing_studio_v2_7">Writing Studio</button>
+          <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/Ai-Workflow">AI 워크플로우</button>
+          <button class="ql-btn" id="btnQlWorkTimer">워크 타이머</button>
+          <button class="ql-btn" id="btnQlClock">시계</button>
+          <button class="ql-btn" id="btnQlStickyNotes">포스트잇</button>
+          <button class="ql-btn" id="btnQlUpscayl">업스케일</button>
+          <button class="ql-btn" id="btnQlGrid">원근 그리드</button>
+          <button class="ql-btn" id="btnQlObjPlacer">OBJ 배치</button>
+          <button class="ql-btn" id="btnQlDesignDoll">DesignDoll</button>
+          <button class="ql-btn dd-toggle" id="btnQlDesignDollTop" title="DesignDoll 창을 항상 위로 고정 켜기/끄기 (DesignDoll을 먼저 실행해 두어야 합니다)">
+            <span class="dd-dot"></span><span class="dd-label">DD 항상위</span>
+          </button>
+          <button class="ql-btn" id="btnQlYes24">예스24 이북</button>
+          <button class="ql-btn dd-toggle" id="btnQlYes24Top" title="예스24 이북 창을 항상 위로 고정 켜기/끄기 (예스24 이북을 먼저 실행해 두어야 합니다)">
+            <span class="dd-dot"></span><span class="dd-label">예스24 항상위</span>
+          </button>
+          <button class="ql-btn" id="btnQlPureref">PureRef</button>
+        </div>
+        <!-- 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 탭/주소창 없는 작은 창으로 열 수 있다 -
+             임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
+        <div class="ql-row" style="margin-top:6px;">
+          <input type="text" id="miniWinUrlInput" placeholder="https://... 주소 입력" title="탭/주소창 없는 작은 창으로 열 사이트 주소">
+          <button class="ql-btn ql-main" id="btnMiniWinOpen" title="위 주소를 작은 창으로 엽니다 (항상 위 고정은 Ctrl+Alt+Y)">미니창 열기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- window.prompt() 대체용 입력 모달 -->
+<div id="promptOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <div id="promptMessage" class="modal-msg"></div>
+    <input type="text" id="promptInput">
+    <div class="modal-actions">
+      <button id="promptCancel">취소</button>
+      <button id="promptOk">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- 미니창으로 보던 사이트를 썸네일과 함께 라이브러리 항목으로 저장하는 모달 (2026-07-22) -->
+<div id="miniwinAddOverlay" class="modal-overlay">
+  <div class="modal-box" style="width:340px;">
+    <div class="modal-msg">미니창 항목 추가</div>
+    <label style="display:block; font-size:11.5px; color:var(--text-2); margin:6px 0 3px;">주소</label>
+    <input type="text" id="miniwinUrlField" placeholder="https://...">
+    <label style="display:block; font-size:11.5px; color:var(--text-2); margin:10px 0 3px;">제목 (구분용, 비우면 자동 지정)</label>
+    <input type="text" id="miniwinTitleField" placeholder="제목">
+    <label style="display:block; font-size:11.5px; color:var(--text-2); margin:10px 0 3px;">썸네일 (선택)</label>
+    <div id="miniwinThumbBox">
+      <img id="miniwinThumbPreview" style="display:none;">
+      <span id="miniwinThumbPlaceholder">썸네일 없음</span>
+    </div>
+    <div class="modal-actions" style="margin-top:6px; justify-content:flex-start; gap:6px;">
+      <button id="miniwinPickFileBtn" type="button">파일 선택</button>
+      <button id="miniwinPasteBtn" type="button" title="클립보드에 복사된 이미지를 붙여넣습니다">붙여넣기</button>
+      <button id="miniwinClearThumbBtn" type="button">지우기</button>
+    </div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button id="miniwinCancelBtn">취소</button>
+      <button id="miniwinSaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI 인덱싱 진행 상태를 눈에 보이게 보여주는 오버레이(신규, 평소엔 숨김) -->
+<div id="aiIndexOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#20222a; border:1px solid #3a3d47; border-radius:10px; padding:24px 28px; min-width:380px; color:#eee; font-family:'Malgun Gothic',system-ui,sans-serif;">
+    <div style="font-size:15px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+      <span>🔄 AI 인덱싱 진행 중</span>
+      <span id="aiIndexElapsed" style="font-size:13px; color:#8fc; font-variant-numeric:tabular-nums;">0초</span>
+    </div>
+    <div style="background:#3a3d47; border-radius:6px; overflow:hidden; height:16px; margin:10px 0 8px;">
+      <div id="aiIndexBar" style="background:#4a90d9; height:100%; width:0%; transition:width .2s;"></div>
+    </div>
+    <div id="aiIndexOverlayText" style="font-size:13px; margin-bottom:14px;">준비 중...</div>
+    <div style="text-align:right;">
+      <button id="aiIndexOverlayClose" style="display:none;">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- 오류 발생 위치/내용을 바로 확인할 수 있는 로그 창 (평소엔 "오류 없음"으로 접혀있고, 클릭하면 펼쳐짐) -->
+<div id="errorLog">
+  <div id="errorLogHeader">
+    <span id="errorLogTitle">오류 없음</span>
+    <button id="errorLogClear">지우기</button>
+  </div>
+  <div id="errorLogBody"></div>
+</div>
+
+<script>
+const { ipcRenderer, shell, clipboard } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const https = require('https');
+const { pathToFileURL } = require('url');
+// ---- AI 이미지 유사 검색(신규, 별도 모듈) ----
+// 이 require 하나가 연결부의 전부다. 문제가 생기면 이 줄과 아래 관련 함수 몇 개만
+// 지우면 기존 앱으로 바로 복원된다. ai-search.js는 원본 데이터를 절대 건드리지 않는다.
+let aiSearch = null;
+try { aiSearch = require('./ai-search.js'); } catch (err) { console.error('ai-search.js 로드 실패:', err.message); }
+
+// 파일명에 #, %, ? 같은 특수문자가 있으면 'file://'+경로 로는 깨진다(#은 URL 조각(fragment) 구분자로 해석됨).
+// pathToFileURL이 이런 문자를 올바르게 퍼센트 인코딩해준다.
+function toFileUrl(absPath) {
+  try { return pathToFileURL(absPath).href; }
+  catch (err) { console.error('파일 경로를 URL로 변환 실패:', err); return 'file://' + absPath; }
+}
+
+// ---- 오류 로그 (오른쪽 하단) : 어디서(파일/줄), 어떤 오류가 났는지 devtools 없이 바로 확인 ----
+const errorHistory = [];
+function logError(info) {
+  errorHistory.unshift({ time: new Date().toLocaleTimeString('ko-KR'), ...info });
+  if (errorHistory.length > 30) errorHistory.length = 30;
+  renderErrorLog();
+}
+function renderErrorLog() {
+  const box = document.getElementById('errorLog');
+  const header = document.getElementById('errorLogHeader');
+  const title = document.getElementById('errorLogTitle');
+  const body = document.getElementById('errorLogBody');
+  if (!box || !header || !title || !body) return;
+  if (!errorHistory.length) {
+    header.classList.remove('hasError');
+    title.textContent = '오류 없음';
+    body.innerHTML = '';
+    return;
+  }
+  header.classList.add('hasError');
+  title.textContent = `⚠ 오류 ${errorHistory.length}건 (클릭해서 펼치기) - 최근: ${errorHistory[0].message || ''}`;
+  body.innerHTML = errorHistory.map(e => {
+    const loc = [e.filename ? String(e.filename).split(/[\\/]/).pop() : '', (e.lineno ? e.lineno : ''), (e.colno ? e.colno : '')]
+      .filter(Boolean).join(':');
+    return `<div class="errItem">
+      <div class="errTime">${e.time}${loc ? ' · ' + escapeHtml(loc) : ''}</div>
+      <div class="errMsg">${escapeHtml(e.message || '(메시지 없음)')}</div>
+      ${e.stack ? `<pre class="errStack">${escapeHtml(String(e.stack).slice(0, 800))}</pre>` : ''}
+    </div>`;
+  }).join('<div class="errSep"></div>');
+}
+window.addEventListener('error', (e) => {
+  logError({ message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno, stack: e.error && e.error.stack });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason;
+  logError({ message: 'Promise 오류: ' + (reason && reason.message ? reason.message : String(reason)), stack: reason && reason.stack });
+});
+const _origConsoleError = console.error.bind(console);
+console.error = (...args) => {
+  _origConsoleError(...args);
+  logError({ message: args.map(a => (a instanceof Error ? a.message : String(a))).join(' '), stack: args.map(a => a && a.stack).find(Boolean) });
+};
+document.getElementById('errorLogHeader').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('errorLogClear')) return;
+  document.getElementById('errorLog').classList.toggle('open');
+});
+document.getElementById('errorLogClear').addEventListener('click', (e) => {
+  e.stopPropagation();
+  errorHistory.length = 0;
+  renderErrorLog();
+  document.getElementById('errorLog').classList.remove('open');
+});
+document.querySelectorAll('.ql-btn[data-url]').forEach(btn => {
+  btn.addEventListener('click', () => shell.openExternal(btn.dataset.url));
+});
+// 워크 타이머/시계는 웹 링크가 아니라 로컬 exe라서 브라우저로 열지 않고 직접 실행한다
+document.getElementById('btnQlWorkTimer').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-work-timer');
+  if (!r.success) alert('워크 타이머 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlClock').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-clock-app');
+  if (!r.success) alert('시계 앱 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlStickyNotes').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-sticky-notes');
+  if (!r.success) alert('포스트잇 앱 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlUpscayl').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-upscayl');
+  if (!r.success) alert('업스케일 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlGrid').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-perspective-grid');
+  if (!r.success) alert('곡선 원근 그리드 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlObjPlacer').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-obj-placer');
+  if (!r.success) alert('OBJ 배치 뷰어 실행 실패: ' + r.error);
+});
+document.getElementById('btnQlDesignDoll').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-designdoll');
+  if (!r.success) alert('DesignDoll 실행 실패: ' + r.error);
+});
+// DesignDoll은 외부 프로그램이라 임베드는 안 되지만, 그 창에 "항상 위" 속성만 걸어줄 수는 있다
+// (Windows API를 메인 프로세스에서 호출 - main.js의 toggle-designdoll-topmost 참고)
+let designDollTopmostOn = false;
+const btnQlDesignDollTop = document.getElementById('btnQlDesignDollTop');
+// 눌린 느낌(안쪽 그림자) + 점 표시로 상태를 보여준다 - CSS의 .dd-toggle.active 규칙 참고
+function renderDesignDollTopBtn() {
+  btnQlDesignDollTop.classList.toggle('active', designDollTopmostOn);
+  btnQlDesignDollTop.title = designDollTopmostOn
+    ? 'DesignDoll 항상 위 고정 켜짐 - 클릭하면 끕니다'
+    : 'DesignDoll 창을 항상 위로 고정 켜기/끄기 (DesignDoll을 먼저 실행해 두어야 합니다)';
+}
+btnQlDesignDollTop.addEventListener('click', async () => {
+  const next = !designDollTopmostOn;
+  const r = await ipcRenderer.invoke('toggle-designdoll-topmost', next);
+  if (!r.found) {
+    alert('DesignDoll 창을 찾지 못했습니다. 먼저 DesignDoll을 실행한 뒤 다시 눌러주세요.');
+    return;
+  }
+  designDollTopmostOn = next;
+  renderDesignDollTopBtn();
+});
+
+document.getElementById('btnQlYes24').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-yes24ebook');
+  if (!r.success) alert('예스24 이북 실행 실패: ' + r.error);
+});
+// DesignDoll과 같은 방식(눌린 느낌 + 점 표시)의 "항상 위" 토글
+let yes24TopmostOn = false;
+const btnQlYes24Top = document.getElementById('btnQlYes24Top');
+function renderYes24TopBtn() {
+  btnQlYes24Top.classList.toggle('active', yes24TopmostOn);
+  btnQlYes24Top.title = yes24TopmostOn
+    ? '예스24 이북 항상 위 고정 켜짐 - 클릭하면 끕니다'
+    : '예스24 이북 창을 항상 위로 고정 켜기/끄기 (예스24 이북을 먼저 실행해 두어야 합니다)';
+}
+btnQlYes24Top.addEventListener('click', async () => {
+  const next = !yes24TopmostOn;
+  const r = await ipcRenderer.invoke('toggle-yes24-topmost', next);
+  if (!r.found) {
+    alert('예스24 이북 창을 찾지 못했습니다. 먼저 예스24 이북을 실행한 뒤 다시 눌러주세요.');
+    return;
+  }
+  yes24TopmostOn = next;
+  renderYes24TopBtn();
+});
+
+document.getElementById('btnQlPureref').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-pureref');
+  if (!r.success) alert('PureRef 실행 실패: ' + r.error);
+});
+
+// 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 미니 창으로 열 수 있다 - 마지막으로 입력한 주소는
+// 기억해뒀다가 다음에 앱을 열었을 때 그대로 채워준다.
+const miniWinUrlInput = document.getElementById('miniWinUrlInput');
+miniWinUrlInput.value = localStorage.getItem('miniWinLastUrl') || '';
+document.getElementById('btnMiniWinOpen').addEventListener('click', async () => {
+  let url = miniWinUrlInput.value.trim();
+  if (!url) { alert('주소를 입력해 주세요.'); return; }
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  miniWinUrlInput.value = url;
+  localStorage.setItem('miniWinLastUrl', url);
+  const r = await ipcRenderer.invoke('open-mini-window', url);
+  if (!r.success) alert('미니창 실행 실패: ' + r.error);
+});
+miniWinUrlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btnMiniWinOpen').click();
+});
+// 미니 창의 "항상 위"는 버튼이 아니라 전역 단축키(Ctrl+Alt+Y)로 처리한다 - main.js 참고.
+// 지금 포커스된 창(미니창이든, 다른 크롬 창이든, 다른 프로그램이든) 기준으로 그 순간 켜고 끈다.
+
+// 오른쪽 패널 시계 - detailScroll 내용(이미지 선택 여부)과 무관하게 항상 같은 자리에 떠 있음
+function updateRefClock() {
+  const timeEl = document.getElementById('refClockTime');
+  const dateEl = document.getElementById('refClockDate');
+  if (!timeEl || !dateEl) return;
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  timeEl.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const days = ['일', '월', '화', '수', '목', '금', '토'];
+  dateEl.textContent = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${days[now.getDay()]})`;
+}
+updateRefClock();
+setInterval(updateRefClock, 1000);
+
+// API 사용량 패널 - 예약 작업이 갱신해두는 JSON 파일을 주기적으로 다시 읽어 표시.
+// 시계처럼 이 앱이 켜져 있는 동안 스스로 새로고침하며, 파일 쓰기 주체(예약 작업)와는 완전히 분리되어 있다.
+// 회사 컴퓨터/개인 노트북이 구글 드라이브 마운트 경로가 서로 달라(회사: C:\Users\user\내 드라이브\..., 노트북: D:\구글드라이브\...)
+// 하드코딩 경로 하나만 쓰면 한쪽에서는 항상 "데이터 없음"이 뜬다. 두 경로 후보 중 실제 존재하는 쪽을 선택한다. (2026-07-16 수정)
+const API_USAGE_FILE_CANDIDATES = [
+  'C:\\Users\\user\\내 드라이브\\레퍼런스 백업\\API비용\\현재상태.json',
+  'D:\\구글드라이브\\레퍼런스 백업\\API비용\\현재상태.json'
+];
+function resolveApiUsageFile() {
+  for (const p of API_USAGE_FILE_CANDIDATES) {
+    try { if (fs.existsSync(p)) return p; } catch (e) {}
+  }
+  return API_USAGE_FILE_CANDIDATES[0];
+}
+const API_USAGE_FILE = resolveApiUsageFile();
+function updateApiUsage() {
+  const bodyEl = document.getElementById('apiUsageBody');
+  const updatedEl = document.getElementById('apiUsageUpdated');
+  if (!bodyEl || !updatedEl) return;
+  try {
+    if (!fs.existsSync(API_USAGE_FILE)) {
+      bodyEl.innerHTML = '<div class="au-err">데이터 없음</div>';
+      updatedEl.textContent = '-';
+      return;
+    }
+    const raw = fs.readFileSync(API_USAGE_FILE, 'utf-8');
+    const d = JSON.parse(raw);
+    updatedEl.textContent = d.updatedAt ? d.updatedAt.replace('T', ' ').slice(0, 16) : '-';
+    let html = '';
+    if (d.error) html += `<div class="au-err">⚠ ${d.error}</div>`;
+    if (d.openai) html += `<div class="au-row"><span class="au-name">OpenAI 잔액</span><span>$${d.openai.credit}</span></div>`;
+    if (d.gemini) html += `<div class="au-row"><span class="au-name">Gemini</span><span>₩${d.gemini.spend.toLocaleString()} / ₩${d.gemini.spendLimit.toLocaleString()}</span></div>`;
+    if (d.claude) html += `<div class="au-row"><span class="au-name">Claude 잔액</span><span>$${d.claude.credit}</span></div>`;
+    bodyEl.innerHTML = html || '<div class="au-err">데이터 없음</div>';
+  } catch (err) {
+    bodyEl.innerHTML = '<div class="au-err">읽기 오류</div>';
+    updatedEl.textContent = '-';
+  }
+}
+updateApiUsage();
+setInterval(updateApiUsage, 30000);
+
+let root = null;
+let tree = null;
+let data = { user_id: 'default_user', version: 1, tags: {}, notes: {}, favorites: [], pinnedFolders: [] };
+let currentFolder = null; // absolute path, null = root
+let currentSmart = 'all'; // all | no-tag | favorites | null | ai-similar
+let activeTag = null;
+let aiSimilarResults = null; // AI 유사 검색 결과 목록(currentSmart==='ai-similar'일 때만 사용)
+let searchQuery = '';
+let recursive = false;
+let selectedPath = null; // 단일 선택 시 그 파일(상세 패널 단일뷰에 사용)
+let selectedPaths = new Set(); // 실제 선택 상태(다중 선택 포함)의 기준
+let selectionAnchorIndex = null; // Shift 범위 선택의 기준점(현재 렌더된 목록 안에서의 인덱스)
+let allImagesCache = []; // {path,name,size,mtime}
+let collapsedFolders = new Set(); // 접힌 폴더의 relPath 목록
+
+function relKey(absPath) { return path.relative(root, absPath).split(path.sep).join('/'); }
+
+// ---- 3D 모델(.obj) 실제 미리보기 썸네일 생성 ----
+// obj 뷰어 앱과 동일한 방식(수작업 OBJ 파서 + three.js)으로 실제 모델을 렌더링해 PNG로 캐싱한다.
+// three.js는 3D 파일이 있을 때만 비동기로 불러오므로, 오프라인이거나 로드 실패해도 나머지 기능은 그대로 동작한다.
+let threeLoadPromise = null;
+function ensureThreeLoaded() {
+  if (typeof THREE !== 'undefined') return Promise.resolve(true);
+  if (threeLoadPromise) return threeLoadPromise;
+  threeLoadPromise = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+  return threeLoadPromise;
+}
+
+const THUMB_CACHE_DIR_NAME = '.reflib-thumbs';
+function getThumbCacheDir() {
+  const dir = path.join(root, THUMB_CACHE_DIR_NAME);
+  if (!fs.existsSync(dir)) { try { fs.mkdirSync(dir); } catch {} }
+  return dir;
+}
+function thumbCachePath(absPath, ext) {
+  const hash = crypto.createHash('md5').update(relKey(absPath)).digest('hex');
+  return path.join(getThumbCacheDir(), hash + '.' + (ext || 'png'));
+}
+
+// ---- 이미지 썸네일도 축소본으로 캐싱 (원본이 크고 개수가 많으면 그리드가 느려지거나 멈춘 것처럼 보이는 문제 해결) ----
+const IMG_THUMB_MAX = 480; // 썸네일 슬라이더 최대치(400)보다 살짝 크게 잡아 확대해도 흐려 보이지 않게
+let _imgThumbCanvas = null;
+function loadImageElement(absPath) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('이미지 로드 실패'));
+    img.src = toFileUrl(absPath);
+  });
+}
+async function renderImageThumbnail(absPath) {
+  try {
+    const img = await loadImageElement(absPath);
+    const longest = Math.max(img.naturalWidth, img.naturalHeight) || 1;
+    const scale = Math.min(1, IMG_THUMB_MAX / longest);
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    if (!_imgThumbCanvas) _imgThumbCanvas = document.createElement('canvas');
+    _imgThumbCanvas.width = w;
+    _imgThumbCanvas.height = h;
+    const ctx = _imgThumbCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    return _imgThumbCanvas.toDataURL('image/jpeg', 0.82);
+  } catch (err) {
+    console.error('이미지 썸네일 생성 실패:', err);
+    return null;
+  }
+}
+async function ensureImageThumbnail(absPath) {
+  const cachePath = thumbCachePath(absPath, 'jpg');
+  try {
+    const srcMtime = fs.statSync(absPath).mtimeMs;
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).mtimeMs >= srcMtime) return cachePath;
+  } catch { return null; }
+  const dataUrl = await renderImageThumbnail(absPath);
+  if (!dataUrl) return null;
+  try {
+    fs.writeFileSync(cachePath, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    return cachePath;
+  } catch (err) {
+    console.error('썸네일 캐시 저장 실패:', err);
+    return null;
+  }
+}
+
+// ---- 로컬 동영상 파일(mp4 등)도 그리드에서 아이콘 대신 한 프레임을 캡처해 썸네일로 보여준다 ----
+function renderVideoThumbnail(absPath) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.preload = 'auto';
+      video.src = toFileUrl(absPath);
+      video.addEventListener('loadeddata', () => {
+        // 0초는 검은 화면인 경우가 많아 살짝 뒤로 이동한 지점에서 캡처
+        try { video.currentTime = Math.min(1, (video.duration || 2) * 0.1); }
+        catch { finish(null); }
+      });
+      video.addEventListener('seeked', () => {
+        try {
+          const w = video.videoWidth, h = video.videoHeight;
+          if (!w || !h) { finish(null); return; }
+          const longest = Math.max(w, h);
+          const scale = Math.min(1, IMG_THUMB_MAX / longest);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL('image/jpeg', 0.82));
+        } catch (err) {
+          console.error('동영상 썸네일 캡처 실패:', err);
+          finish(null);
+        }
+      });
+      video.addEventListener('error', () => finish(null));
+      setTimeout(() => finish(null), 8000); // 재생 준비가 너무 오래 걸리면 포기(썸네일 없이 아이콘 유지)
+    } catch (err) {
+      finish(null);
+    }
+  });
+}
+async function ensureVideoThumbnail(absPath) {
+  const cachePath = thumbCachePath(absPath, 'jpg');
+  try {
+    const srcMtime = fs.statSync(absPath).mtimeMs;
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).mtimeMs >= srcMtime) return cachePath;
+  } catch { return null; }
+  const dataUrl = await renderVideoThumbnail(absPath);
+  if (!dataUrl) return null;
+  try {
+    fs.writeFileSync(cachePath, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    return cachePath;
+  } catch (err) {
+    console.error('동영상 썸네일 캐시 저장 실패:', err);
+    return null;
+  }
+}
+
+// ---- 웹 임베드(핀터레스트)도 그리드에서 아이콘이 아니라 실제 썸네일로 보이도록, 핀터레스트 공식 oEmbed API로
+// 대표 이미지 주소를 물어본 뒤 캐시에 받아둔다. 한 번 받으면 이후엔 캐시 파일을 그대로 쓴다.
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error('status ' + res.statusCode)); return; }
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (err) { reject(err); } });
+    }).on('error', reject);
+  });
+}
+function downloadToFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error('status ' + res.statusCode)); return; }
+      const file = fs.createWriteStream(destPath);
+      res.pipe(file);
+      file.on('finish', () => file.close(() => resolve(destPath)));
+      file.on('error', reject);
+    }).on('error', reject);
+  });
+}
+async function ensureEmbedThumbnail(absPath, embedUrl) {
+  const cachePath = thumbCachePath(absPath, 'jpg');
+  try {
+    // 캐시 키가 파일 경로(이름) 기준이라, 예전에 같은 이름으로 있던 다른 임베드(예: 삭제된 유튜브 항목)의
+    // 썸네일이 남아있으면 새로 만든 .pinembed인데도 옛날 썸네일을 그대로 돌려주는 문제가 있었다.
+    // .pinembed 파일 자체의 수정시각과 캐시 파일 수정시각을 비교해서, 캐시가 더 오래됐으면(=다른 파일이 재활용한 이름이면) 다시 받는다.
+    const srcMtime = fs.statSync(absPath).mtimeMs;
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).mtimeMs >= srcMtime) return cachePath;
+  } catch {}
+  try {
+    // 유튜브는 API 호출 없이 예측 가능한 썸네일 주소가 있음 (영상 ID만 있으면 바로 받아짐)
+    const ytMatch = (embedUrl || '').match(/youtube(?:-nocookie)?\.com\/embed\/([a-zA-Z0-9_-]+)/i);
+    if (ytMatch) {
+      await downloadToFile(`https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`, cachePath);
+      return cachePath;
+    }
+    const idMatch = (embedUrl || '').match(/[?&]id=(\d+)/);
+    if (!idMatch) return null;
+    const pinUrl = `https://www.pinterest.com/pin/${idMatch[1]}/`;
+    const oembed = await fetchJson('https://www.pinterest.com/oembed.json?url=' + encodeURIComponent(pinUrl));
+    if (!oembed || !oembed.thumbnail_url) return null;
+    await downloadToFile(oembed.thumbnail_url, cachePath);
+    return cachePath;
+  } catch (err) {
+    console.error('임베드 썸네일 가져오기 실패:', err);
+    return null;
+  }
+}
+// 웹 링크(기사 등)는 저장할 때 이미 og:image 주소를 함께 받아뒀으므로, 그 이미지를 그대로 캐시해서 그리드 썸네일로 쓴다
+async function ensureLinkThumbnail(absPath, linkImage) {
+  const cachePath = thumbCachePath(absPath, 'jpg');
+  try {
+    const srcMtime = fs.statSync(absPath).mtimeMs;
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).mtimeMs >= srcMtime) return cachePath;
+  } catch {}
+  if (!linkImage) return null;
+  try {
+    await downloadToFile(linkImage, cachePath);
+    return cachePath;
+  } catch (err) {
+    console.error('링크 썸네일 가져오기 실패:', err);
+    return null;
+  }
+}
+// 미니창 항목은 임의 사이트라 자동으로 대표 이미지를 가져올 방법이 없다 - 저장할 때 사용자가
+// 파일 선택/붙여넣기로 지정한 썸네일이 이미 캐시 파일로 만들어져 있으므로, 여기서는 그 캐시가
+// 있는지 확인만 한다(없으면 아이콘으로 표시).
+async function ensureMiniwinThumbnail(absPath) {
+  const cachePath = thumbCachePath(absPath, 'jpg');
+  try { return fs.existsSync(cachePath) ? cachePath : null; } catch { return null; }
+}
+
+// OBJ 텍스트 -> three.js 지오메트리 (obj-viewer 앱의 parseOBJ와 동일한 파싱 로직)
+function parseObjToGeometry(text) {
+  const lines = text.split('\n');
+  const positions = [], normals = [];
+  const verts = [], normArr = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('v ')) {
+      const p = line.split(/\s+/);
+      positions.push(parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3]));
+    } else if (line.startsWith('vn ')) {
+      const p = line.split(/\s+/);
+      normals.push(parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3]));
+    } else if (line.startsWith('f ')) {
+      const parts = line.split(/\s+/).slice(1);
+      for (let i = 1; i < parts.length - 1; i++) {
+        [parts[0], parts[i], parts[i + 1]].forEach(p => {
+          const idx = p.split('/');
+          const vi = (parseInt(idx[0]) - 1) * 3;
+          verts.push(positions[vi], positions[vi + 1], positions[vi + 2]);
+          if (idx[2] && normals.length) {
+            const ni = (parseInt(idx[2]) - 1) * 3;
+            normArr.push(normals[ni], normals[ni + 1], normals[ni + 2]);
+          }
+        });
+      }
+    }
+  }
+  if (!verts.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  if (normArr.length === verts.length) geo.setAttribute('normal', new THREE.Float32BufferAttribute(normArr, 3));
+  else geo.computeVertexNormals();
+  return geo;
+}
+
+let _objThumbCanvas = null;
+let _objThumbRenderer = null;
+const OBJ_THUMB_SIZE = 400;
+function renderObjThumbnail(absPath) {
+  try {
+    const text = fs.readFileSync(absPath, 'utf8');
+    const geo = parseObjToGeometry(text);
+    if (!geo) return null;
+
+    if (!_objThumbCanvas) {
+      _objThumbCanvas = document.createElement('canvas');
+      _objThumbCanvas.width = OBJ_THUMB_SIZE;
+      _objThumbCanvas.height = OBJ_THUMB_SIZE;
+      _objThumbRenderer = new THREE.WebGLRenderer({ canvas: _objThumbCanvas, antialias: true, preserveDrawingBuffer: true });
+      _objThumbRenderer.setSize(OBJ_THUMB_SIZE, OBJ_THUMB_SIZE, false);
+    }
+
+    const scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir1.position.set(5, 8, 5);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0xc9c2b6, 0.3);
+    dir2.position.set(-5, -3, -5);
+    scene.add(dir2);
+
+    const mat = new THREE.MeshPhongMaterial({ color: 0x9b9690, specular: 0x2a2825, shininess: 8, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    scene.add(mesh);
+
+    geo.computeBoundingBox();
+    const box = geo.boundingBox;
+    const center = new THREE.Vector3(); box.getCenter(center);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.01, maxDim * 100);
+    const dist = maxDim * 1.8;
+    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.5, center.z + dist * 0.6);
+    camera.lookAt(center);
+
+    _objThumbRenderer.setClearColor(0x181818, 1);
+    _objThumbRenderer.render(scene, camera);
+    const dataUrl = _objThumbCanvas.toDataURL('image/png');
+
+    geo.dispose();
+    mat.dispose();
+
+    return dataUrl;
+  } catch (err) {
+    console.error('obj 썸네일 생성 실패:', err);
+    return null;
+  }
+}
+
+// 캐시를 확인하고 없거나 원본이 더 새로우면 다시 렌더링해서 PNG로 저장, 캐시 파일 경로를 반환
+async function ensureObjThumbnail(absPath) {
+  const cachePath = thumbCachePath(absPath);
+  try {
+    const srcMtime = fs.statSync(absPath).mtimeMs;
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).mtimeMs >= srcMtime) return cachePath;
+  } catch {}
+  const ok = await ensureThreeLoaded();
+  if (!ok) return null;
+  const dataUrl = renderObjThumbnail(absPath);
+  if (!dataUrl) return null;
+  try {
+    fs.writeFileSync(cachePath, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    return cachePath;
+  } catch (err) {
+    console.error('썸네일 캐시 저장 실패:', err);
+    return null;
+  }
+}
+
+async function init() {
+  initThumbSize();
+  initResizers();
+  const cfg = await ipcRenderer.invoke('get-config');
+  if (cfg && cfg.lastRoot) {
+    root = cfg.lastRoot;
+    await loadLibrary();
+  }
+}
+
+// 썸네일 크기 슬라이더 (그리드 칸 크기 = 이미지 높이, localStorage에 기억)
+function initThumbSize() {
+  const MIN_THUMB = 80, MAX_THUMB = 400;
+  let saved = parseInt(localStorage.getItem('reflib_thumbSize'), 10);
+  // 예전에 슬라이더 min/max 제한이 없던 시절 저장된 비정상적으로 작은/큰 값이 남아있으면 정상 범위로 되돌린다.
+  // (슬라이더 자체는 min=80으로 화면에는 정상으로 보이지만, 실제 --thumb-size 값은 저장된 값을 그대로 써서 썸네일이 얇게 눌린 것처럼 보이던 원인)
+  if (!Number.isFinite(saved) || saved < MIN_THUMB || saved > MAX_THUMB) saved = 150;
+  document.documentElement.style.setProperty('--thumb-size', saved + 'px');
+  const slider = document.getElementById('thumbSizeSlider');
+  slider.value = saved;
+  localStorage.setItem('reflib_thumbSize', saved);
+  slider.addEventListener('input', () => {
+    document.documentElement.style.setProperty('--thumb-size', slider.value + 'px');
+    localStorage.setItem('reflib_thumbSize', slider.value);
+  });
+}
+
+// 사이드바 / 상세패널 폭을 드래그로 조절 (localStorage에 기억)
+function initResizers() {
+  const savedSidebar = localStorage.getItem('reflib_sidebarW');
+  const savedDetail = localStorage.getItem('reflib_detailW');
+  if (savedSidebar) document.documentElement.style.setProperty('--sidebar-w', savedSidebar + 'px');
+  if (savedDetail) document.documentElement.style.setProperty('--detail-w', savedDetail + 'px');
+
+  function makeDraggable(handle, cssVar, storageKey, targetEl, invert) {
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = targetEl.getBoundingClientRect().width;
+      handle.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      function onMove(ev) {
+        const delta = invert ? (startX - ev.clientX) : (ev.clientX - startX);
+        const newW = Math.max(160, Math.min(600, Math.round(startW + delta)));
+        document.documentElement.style.setProperty(cssVar, newW + 'px');
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        const finalW = getComputedStyle(document.documentElement).getPropertyValue(cssVar);
+        localStorage.setItem(storageKey, parseInt(finalW));
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  makeDraggable(document.getElementById('resizerLeft'), '--sidebar-w', 'reflib_sidebarW', document.getElementById('sidebar'), false);
+  makeDraggable(document.getElementById('resizerRight'), '--detail-w', 'reflib_detailW', document.getElementById('detail'), true);
+}
+
+// 커스텀 타이틀바 - 기본 창틀을 껐으므로(frame:false) 최소화/최대화/닫기를 직접 IPC로 구현
+document.getElementById('btnWinMin').onclick = () => ipcRenderer.invoke('window:minimize');
+document.getElementById('btnWinClose').onclick = () => ipcRenderer.invoke('window:close');
+const btnWinMax = document.getElementById('btnWinMax');
+btnWinMax.onclick = async () => {
+  const maximized = await ipcRenderer.invoke('window:toggle-maximize');
+  btnWinMax.title = maximized ? '이전 크기로' : '최대화';
+};
+document.getElementById('titlebarTitle').parentElement.ondblclick = (e) => {
+  if (e.target.closest('.tb-btn')) return;
+  btnWinMax.click();
+};
+ipcRenderer.on('window:maximize-changed', (e, maximized) => {
+  btnWinMax.title = maximized ? '이전 크기로' : '최대화';
+});
+
+document.getElementById('btnSelectRoot').onclick = async () => {
+  const dir = await ipcRenderer.invoke('select-library-root');
+  if (!dir) return;
+  root = dir;
+  await ipcRenderer.invoke('set-config', { lastRoot: root });
+  await loadLibrary();
+};
+
+document.getElementById('chkRecursive').onchange = (e) => { recursive = e.target.checked; renderGrid(); };
+document.getElementById('searchInput').oninput = (e) => { searchQuery = e.target.value.trim().toLowerCase(); renderGrid(); };
+document.getElementById('btnAiTextSearch').onclick = () => runAiTextSearch();
+document.getElementById('btnAiIndex').onclick = () => runAiIndexing();
+
+document.getElementById('btnImport').onclick = async () => {
+  if (!root) return alert('먼저 라이브러리를 선택하세요.');
+  const dest = currentFolder || root;
+  const copied = await ipcRenderer.invoke('import-images', dest);
+  if (copied.length) { await refreshTreeAndImages(); }
+};
+
+// 핀터레스트 "임베드 코드 가져오기"로 얻은 <iframe> 코드나 핀 URL을 붙여넣으면 재생용 embed 주소를 뽑아낸다.
+// 저장이 막힌 동영상(blob 스트리밍 등)은 파일로 받을 수 없으니, 대신 이 재생 링크만 라이브러리에 남겨둔다.
+function parseEmbedInput(raw) {
+  raw = (raw || '').trim();
+  if (!raw) return null;
+  const iframeMatch = raw.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+  if (iframeMatch) return iframeMatch[1];
+  if (/assets\.pinterest\.com\/ext\/embed\.html/i.test(raw)) return raw;
+  const pinMatch = raw.match(/pinterest\.[a-z.]+\/pin\/(\d+)/i);
+  if (pinMatch) return `https://assets.pinterest.com/ext/embed.html?id=${pinMatch[1]}`;
+  // 유튜브: 이미 embed 주소이거나, watch?v=/youtu.be/shorts 형태의 일반 시청 링크를 공식 embed 주소로 변환
+  if (/youtube(-nocookie)?\.com\/embed\//i.test(raw)) return raw;
+  const ytMatch = raw.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/i);
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
+  return null;
+}
+
+document.getElementById('btnAddEmbed').onclick = async () => {
+  if (!root) return alert('먼저 라이브러리를 선택하세요.');
+  const raw = await showPromptDialog('핀터레스트 "임베드 코드 가져오기"에서 복사한 코드나 핀 주소를 붙여넣으세요');
+  if (!raw) return;
+  const embedUrl = parseEmbedInput(raw);
+  if (!embedUrl) { alert('임베드 주소를 인식하지 못했습니다.\niframe 코드 전체 또는 핀 URL(예: pinterest.com/pin/12345/)을 붙여넣어 주세요.'); return; }
+  const title = await showPromptDialog('제목 (구분용, 취소하면 자동 지정)');
+  const dest = currentFolder || root;
+  const r = await ipcRenderer.invoke('save-web-embed', { destDir: dest, embedUrl, title, sourceUrl: raw });
+  if (r.success) refreshTreeAndImages();
+  else alert('저장 실패: ' + r.error);
+};
+
+// 뉴스 기사 등 일반 링크 - 서버에서 받은 HTML로 본문을 추출해서 저장한다.
+// 참고: 광고/네비게이션이 없는 순수 서버 렌더링 페이지에서 잘 동작하고, 자바스크립트로 본문을 그리는
+// 사이트(SPA)는 추출이 안 될 수 있다 - 그런 경우엔 요약과 원문 링크만 남는다.
+document.getElementById('btnAddLink').onclick = async () => {
+  if (!root) return alert('먼저 라이브러리를 선택하세요.');
+  const url = await showPromptDialog('기사/링크 주소를 붙여넣으세요 (예: https://...)');
+  if (!url) return;
+  const dest = currentFolder || root;
+  const r = await ipcRenderer.invoke('save-web-link', { destDir: dest, url: url.trim() });
+  if (r.success) {
+    refreshTreeAndImages();
+    if (r.paragraphCount === 0) alert('저장은 됐지만 본문 자동 추출에는 실패했습니다. 상세 패널에서 원문 링크로 확인해 주세요.');
+  } else {
+    alert('가져오기 실패: ' + r.error);
+  }
+};
+
+// ---- 미니창 항목 추가 (2026-07-22) ----
+// "미니창 열기"로 보던 임의 사이트를, 다른 라이브러리 항목처럼 저장한다. 핀터레스트/유튜브
+// 전용인 웹 임베드나 기사 본문을 추출하는 링크와 달리 대상이 무엇이든 상관없고, 자동으로
+// 대표 이미지를 구할 방법이 없어 썸네일은 사용자가 파일 선택이나 붙여넣기로 직접 지정한다.
+let miniwinThumbBuffer = null; // 저장 전까지 들고 있는 썸네일 바이트(Buffer) - 파일 선택 또는 클립보드 붙여넣기로 채워짐
+function setMiniwinThumbPreview(buffer) {
+  miniwinThumbBuffer = buffer || null;
+  const img = document.getElementById('miniwinThumbPreview');
+  const placeholder = document.getElementById('miniwinThumbPlaceholder');
+  if (miniwinThumbBuffer) {
+    img.src = 'data:image/png;base64,' + miniwinThumbBuffer.toString('base64');
+    img.style.display = 'block';
+    placeholder.style.display = 'none';
+  } else {
+    img.removeAttribute('src');
+    img.style.display = 'none';
+    placeholder.style.display = 'block';
+  }
+}
+function showMiniwinAddDialog() {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('miniwinAddOverlay');
+    const urlField = document.getElementById('miniwinUrlField');
+    const titleField = document.getElementById('miniwinTitleField');
+    const pickBtn = document.getElementById('miniwinPickFileBtn');
+    const pasteBtn = document.getElementById('miniwinPasteBtn');
+    const clearBtn = document.getElementById('miniwinClearThumbBtn');
+    const saveBtn = document.getElementById('miniwinSaveBtn');
+    const cancelBtn = document.getElementById('miniwinCancelBtn');
+
+    // 미니창 주소창에 이미 입력해둔 주소가 있으면 그대로 기본값으로 채워준다
+    urlField.value = (document.getElementById('miniWinUrlInput').value || '').trim();
+    titleField.value = '';
+    setMiniwinThumbPreview(null);
+    overlay.classList.add('show');
+    setTimeout(() => { (urlField.value ? titleField : urlField).focus(); }, 0);
+
+    function cleanup(result) {
+      overlay.classList.remove('show');
+      pickBtn.removeEventListener('click', onPick);
+      pasteBtn.removeEventListener('click', onPaste);
+      clearBtn.removeEventListener('click', onClear);
+      saveBtn.removeEventListener('click', onSave);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(result);
+    }
+    async function onPick() {
+      const r = await ipcRenderer.invoke('pick-thumbnail-file');
+      if (r && r.success) setMiniwinThumbPreview(Buffer.from(r.data, 'base64'));
+    }
+    function onPaste() {
+      const img = clipboard.readImage();
+      if (img.isEmpty()) { alert('클립보드에 이미지가 없습니다. 이미지를 먼저 복사한 뒤 눌러주세요.'); return; }
+      setMiniwinThumbPreview(img.toPNG());
+    }
+    function onClear() { setMiniwinThumbPreview(null); }
+    function onSave() {
+      const url = urlField.value.trim();
+      if (!url) { alert('주소를 입력해 주세요.'); return; }
+      cleanup({ url, title: titleField.value.trim(), thumbBuffer: miniwinThumbBuffer });
+    }
+    function onCancel() { cleanup(null); }
+    pickBtn.addEventListener('click', onPick);
+    pasteBtn.addEventListener('click', onPaste);
+    clearBtn.addEventListener('click', onClear);
+    saveBtn.addEventListener('click', onSave);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+document.getElementById('btnAddMiniwin').onclick = async () => {
+  if (!root) return alert('먼저 라이브러리를 선택하세요.');
+  const result = await showMiniwinAddDialog();
+  if (!result) return;
+  const dest = currentFolder || root;
+  const r = await ipcRenderer.invoke('save-mini-window-ref', { destDir: dest, url: result.url, title: result.title });
+  if (!r.success) { alert('저장 실패: ' + r.error); return; }
+  // 썸네일은 main.js가 아니라 여기서 직접 캐시 파일로 써넣는다 - 다른 썸네일들과 같은 캐시 경로 규칙(thumbCachePath)을 그대로 쓰기 위함
+  if (result.thumbBuffer) {
+    try { fs.writeFileSync(thumbCachePath(r.path, 'jpg'), result.thumbBuffer); }
+    catch (err) { console.error('미니창 썸네일 저장 실패:', err); }
+  }
+  refreshTreeAndImages();
+};
+
+document.getElementById('btnNewFolder').onclick = async () => {
+  if (!root) return;
+  const name = await showPromptDialog('새 폴더 이름');
+  if (!name) return;
+  const parent = currentFolder || root;
+  const r = await ipcRenderer.invoke('create-folder', { parentDir: parent, name });
+  if (r.success) refreshTreeAndImages();
+  else alert('폴더 생성 실패: ' + r.error);
+};
+
+// obj 파일 더블클릭 시 열리는 3D 뷰어 프로그램을 새로 지정 (기존 연결에 오류가 있을 때 사용)
+document.getElementById('btnReconnectObjViewer').onclick = async () => {
+  const r = await ipcRenderer.invoke('reconnect-objviewer');
+  if (r && r.success) alert('OBJ 뷰어가 재연결되었습니다:\n' + r.path);
+  // 취소했거나 실패한 경우는 다이얼로그가 이미 안내했으므로 별도 알림 없음
+};
+
+// 그리드 빈 공간(썸네일이 아닌 곳)을 클릭하면 선택 해제
+document.getElementById('grid').addEventListener('click', (e) => {
+  if (e.target.id === 'grid') clearSelection();
+});
+
+// 그리드 빈 공간을 오른쪽 클릭하면 붙여넣기 메뉴 (2026-07-20 추가) - 썸네일 위 우클릭은 showThumbContextMenu가 처리
+document.getElementById('grid').addEventListener('contextmenu', (e) => {
+  if (e.target.id !== 'grid') return;
+  e.preventDefault();
+  if (!clipboardPaths.length) return;
+  showContextMenu(e.clientX, e.clientY, [
+    { label: `📋 붙여넣기 (${clipboardPaths.length}개)`, action: () => pasteClipboardFiles() }
+  ]);
+});
+
+// 드래그&드롭으로 이미지 가져오기 (탐색기의 로컬 파일 또는 브라우저 페이지의 이미지)
+// 창 가장자리에 파란 점선 테두리가 계속 남아있던 버그: dragover가 body 위 자식 요소들에도
+// 계속 걸리면서 dragleave의 e.target이 body가 아닌 자식 요소가 되는 경우가 많아,
+// "body를 완전히 벗어났을 때만 꺼짐" 조건이 사실상 거의 충족되지 못해 drag-hover 클래스가
+// 한번 켜지면 안 꺼지고 계속 쌓였다. dragenter/dragleave 횟수를 세는 카운터 방식으로 바꾸고,
+// 혹시 카운트가 어긋나도 창 포커스가 바뀌면 강제로 꺼지는 안전장치를 추가했다.
+let dragHoverDepth = 0;
+function setDragHover(on) {
+  document.body.classList.toggle('drag-hover', on);
+}
+document.body.addEventListener('dragenter', (e) => { e.preventDefault(); dragHoverDepth++; setDragHover(true); });
+document.body.addEventListener('dragover', (e) => { e.preventDefault(); });
+document.body.addEventListener('dragleave', (e) => {
+  dragHoverDepth = Math.max(0, dragHoverDepth - 1);
+  if (dragHoverDepth === 0) setDragHover(false);
+});
+window.addEventListener('blur', () => { dragHoverDepth = 0; setDragHover(false); });
+document.body.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragHoverDepth = 0;
+  setDragHover(false);
+  if (!root) { alert('먼저 라이브러리를 선택하세요.'); return; }
+  const dest = currentFolder || root;
+
+  // 1) 로컬 파일(탐색기 등)에서 끌어온 경우
+  const localPaths = Array.from(e.dataTransfer.files).map(f => f.path).filter(Boolean);
+  if (localPaths.length) {
+    const copied = await ipcRenderer.invoke('copy-dropped-files', { paths: localPaths, destDir: dest });
+    if (copied.length) refreshTreeAndImages();
+    else alert('파일을 복사하지 못했습니다.');
+    return;
+  }
+
+  // 2) 로컬 파일이 아니면(핀터레스트 등 웹페이지 이미지) URL을 추출해서 다운로드
+  const { urls, debug } = extractImageUrls(e.dataTransfer);
+  if (!urls.length) {
+    // 3) 이미지/동영상이 아니면 - 웹페이지에서 선택한 텍스트를 드래그해서 놓았을 가능성을 확인한다.
+    // 순수 URL 하나만 드래그했으면 기사/링크로(본문 추출), 그 외 일반 텍스트는 자동으로 .txt 메모로 저장한다.
+    const plainText = (e.dataTransfer.getData('text/plain') || '').trim();
+    if (plainText) {
+      await saveDraggedOrPastedText(plainText, dest);
+      return;
+    }
+    // 진단용: 브라우저가 실제로 어떤 데이터를 넘겼는지 보여줌 (다음 문제 해결에 사용)
+    alert('이미지/동영상 URL을 찾지 못했습니다.\n\n받은 타입: ' + (debug.types.join(', ') || '(없음)') +
+      '\n\n' + debug.samples.join('\n---\n').slice(0, 1500));
+    return;
+  }
+  const r = await ipcRenderer.invoke('download-images', { urls, destDir: dest });
+  if (r.saved && r.saved.length) refreshTreeAndImages();
+  if (r.failed && r.failed.length) {
+    alert(r.failed.length + '개를 다운로드하지 못했습니다:\n' + r.failed.join('\n').slice(0, 1000));
+  }
+});
+
+// 드래그로 들어온/붙여넣은 텍스트를 저장 - 순수 URL 하나뿐이면 기사/링크로, 그 외에는 .txt 메모로
+async function saveDraggedOrPastedText(text, destDir) {
+  if (/^https?:\/\/\S+$/.test(text)) {
+    const r = await ipcRenderer.invoke('save-web-link', { destDir, url: text });
+    if (r.success) refreshTreeAndImages();
+    else alert('링크 가져오기 실패: ' + r.error);
+  } else {
+    const r = await ipcRenderer.invoke('save-text-note', { destDir, text });
+    if (r.success) refreshTreeAndImages();
+    else alert('텍스트 저장 실패: ' + r.error);
+  }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// 클립보드에 복사해둔 이미지/텍스트를 Ctrl+V로 붙여넣으면 자동으로 저장 - 단, 태그/메모 입력창 등에 붙여넣을 때는
+// 원래 동작(그 입력창에 텍스트 입력)을 그대로 두고 가로채지 않는다.
+document.addEventListener('paste', async (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+  if (!root) return;
+  const dest = currentFolder || root;
+
+  // 이미지(웹페이지에서 이미지 복사, 스크린샷 도구로 캡처 등)가 클립보드에 있으면 이미지 파일로 저장
+  const imageFile = Array.from(e.clipboardData.files || []).find(f => f.type.startsWith('image/'));
+  if (imageFile) {
+    e.preventDefault();
+    const dataUrl = await fileToDataUrl(imageFile);
+    const r = await ipcRenderer.invoke('download-images', { urls: [dataUrl], destDir: dest });
+    if (r.saved && r.saved.length) refreshTreeAndImages();
+    else alert('이미지 붙여넣기 실패');
+    return;
+  }
+
+  const text = (e.clipboardData.getData('text/plain') || '').trim();
+  if (!text) return;
+  e.preventDefault();
+  await saveDraggedOrPastedText(text, dest);
+});
+
+// 실제 이미지/동영상 파일 주소로 보이는지 판단 (확장자 또는 알려진 CDN 패턴) - 핀 페이지 링크(pinterest.com/pin/...) 등과 구분하기 위함
+function looksLikeImageUrl(u) {
+  if (/^data:image\//i.test(u)) return true;
+  if (/\.(jpe?g|png|gif|webp|bmp)(\?|#|$)/i.test(u)) return true;
+  if (/pinimg\.com/i.test(u)) return true; // 핀터레스트 이미지 CDN
+  return false;
+}
+// 동영상 주소로 보이는지 판단 (핀터레스트 동영상은 pinimg.com/videos/... 형태의 mp4가 많음)
+function looksLikeVideoUrl(u) {
+  if (/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(u)) return true;
+  if (/pinimg\.com\/videos\//i.test(u)) return true;
+  return false;
+}
+
+// dataTransfer에서 이미지 URL 추출. 우선순위:
+// 1) text/uri-list가 실제 이미지 주소면 그대로 사용 (아이콘 문제 없음)
+// 2) uri-list가 없거나 페이지 링크뿐이면 -> text/html 안의 <img>에서 찾음(아이콘/로고류는 제외)
+// 3) 그래도 못 찾으면 uri-list를 밑져야 본전으로 시도 -> 4) text/plain
+// debug: 실패했을 때 원인을 보여주기 위해 실제로 들어온 타입/내용을 같이 반환
+function extractImageUrls(dt) {
+  const types = Array.from(dt.types || []);
+  const samples = [];
+  let urls = [];
+
+  const uriList = dt.getData('text/uri-list');
+  const uriCandidates = uriList
+    ? uriList.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
+    : [];
+  if (uriList) samples.push('text/uri-list: ' + uriList.slice(0, 300));
+
+  const mediaLikeUri = uriCandidates.filter(u => looksLikeImageUrl(u) || looksLikeVideoUrl(u));
+  if (mediaLikeUri.length) {
+    urls = mediaLikeUri;
+  } else {
+    const html = dt.getData('text/html');
+    if (html) {
+      samples.push('text/html: ' + html.slice(0, 300));
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      const htmlCandidates = [];
+      // 작은 아이콘/로고성 이미지는 제외하고, 실제 콘텐츠로 보이는 이미지만 후보로 삼는다
+      div.querySelectorAll('img').forEach(img => {
+        if (!img.src) return;
+        const w = parseInt(img.getAttribute('width') || '0', 10);
+        const h = parseInt(img.getAttribute('height') || '0', 10);
+        const looksLikeIcon = /icon|logo|favicon|avatar|badge/i.test(img.src) || ((w && w <= 48) || (h && h <= 48));
+        if (!looksLikeIcon) htmlCandidates.push(img.src);
+      });
+      // 배경이미지(background-image: url(...))만 있는 경우도 시도
+      div.querySelectorAll('[style*="background-image"]').forEach(el => {
+        const m = el.getAttribute('style').match(/url\((['"]?)(.*?)\1\)/);
+        if (m && m[2]) htmlCandidates.push(m[2]);
+      });
+      // 동영상(<video src> 또는 <video><source src>)도 후보로 포함 - 사이트가 blob:이 아니라
+      // 실제 mp4/webm 주소를 직접 넣어두는 경우에만 잡힌다(핀터레스트 등 일부는 blob이라 못 잡을 수 있음)
+      div.querySelectorAll('video').forEach(video => {
+        if (video.src) htmlCandidates.push(video.src);
+        video.querySelectorAll('source').forEach(src => { if (src.src) htmlCandidates.push(src.src); });
+      });
+      urls = Array.from(new Set(htmlCandidates));
+    }
+
+    // 핀터레스트 등 사이트 전용 커스텀 타입(application/x-pinterest-pinrep 등)에 실제 이미지/동영상
+    // 주소가 JSON 등으로 통째로 들어있는 경우가 있음 - 아직 못 찾았으면 uri-list/html 이외의 모든 타입
+    // 원본 데이터를 정규식으로 훑어서 이미지/동영상처럼 보이는 URL을 찾아본다
+    if (!urls.length) {
+      const urlPattern = /https?:\/\/[^\s"'<>\\]+\.(?:jpe?g|png|gif|webp|bmp|mp4|webm|mov)(?:\?[^\s"'<>\\]*)?/gi;
+      const pinimgPattern = /https?:\/\/[^\s"'<>\\]*pinimg\.com[^\s"'<>\\]*/gi;
+      const found = new Set();
+      for (const t of types) {
+        if (t === 'text/uri-list' || t === 'text/html' || t === 'text/plain') continue; // 이미 위에서 확인함
+        let raw = '';
+        try { raw = dt.getData(t); } catch {}
+        if (!raw) continue;
+        samples.push(t + ': ' + raw.slice(0, 300));
+        (raw.match(urlPattern) || []).forEach(u => found.add(u));
+        (raw.match(pinimgPattern) || []).forEach(u => found.add(u));
+      }
+      if (found.size) urls = Array.from(found);
+    }
+
+    // 그래도 못 찾았으면 uri-list가 페이지 링크뿐이라도 마지막으로 시도(실패하면 실패로 명확히 표시됨)
+    if (!urls.length && uriCandidates.length) urls = uriCandidates;
+  }
+
+  if (!urls.length) {
+    const plain = dt.getData('text/plain');
+    if (plain) {
+      samples.push('text/plain: ' + plain.slice(0, 300));
+      if (/^https?:\/\//i.test(plain.trim())) urls = [plain.trim()];
+    }
+  }
+
+  // blob: 은 다른 프로세스(브라우저)의 메모리를 가리켜서 여기서 직접 받아올 수 없음 -> 제외하고 표시만
+  const filtered = urls.filter(u => !u.startsWith('blob:'));
+  const blobOnly = urls.some(u => u.startsWith('blob:')) && filtered.length === 0;
+  if (blobOnly) samples.push('(주의: blob: 임시 URL만 있어서 다운로드 불가 - 동영상은 사이트가 재생 시 blob 주소를 쓰는 경우가 많아 특히 잘 실패합니다. 다른 이미지/동영상으로 시도해보세요)');
+
+  return { urls: filtered, debug: { types, samples } };
+}
+
+async function loadLibrary() {
+  document.getElementById('rootLabel').textContent = root;
+  document.getElementById('rootLabel').title = root;
+  data = await ipcRenderer.invoke('load-data', root);
+  currentFolder = null;
+  currentSmart = 'all';
+  activeTag = null;
+  await refreshTreeAndImages();
+}
+
+async function refreshTreeAndImages() {
+  tree = await ipcRenderer.invoke('scan-folder-tree', root);
+  renderTree();
+  renderPinnedFolders();
+  allImagesCache = await ipcRenderer.invoke('list-images', { root, folderPath: root, recursive: true });
+  updateSmartCounts();
+  renderTagCloud();
+  renderGrid();
+}
+
+// ---- 자주 쓰는 폴더를 즐겨찾기로 고정해서 사이드바 상단에 표시 ----
+function togglePinnedFolder(relPath) {
+  data.pinnedFolders = data.pinnedFolders || [];
+  const idx = data.pinnedFolders.indexOf(relPath);
+  if (idx >= 0) data.pinnedFolders.splice(idx, 1); else data.pinnedFolders.push(relPath);
+  saveData();
+  renderPinnedFolders();
+}
+
+function renderPinnedFolders() {
+  const container = document.getElementById('pinnedFolders');
+  const title = document.getElementById('pinnedTitle');
+  if (!container || !title) return;
+  const pinned = data.pinnedFolders || [];
+  container.innerHTML = '';
+  title.style.display = pinned.length ? '' : 'none';
+  container.style.display = pinned.length ? '' : 'none';
+  pinned.forEach(relPath => {
+    const absPath = path.join(root, relPath);
+    const row = document.createElement('div');
+    row.className = 'smart-item pinned-folder-item' + (currentSmart === null && currentFolder === absPath ? ' active' : '');
+    row.innerHTML = `<span>📌 ${escapeHtml(path.basename(relPath))}</span>`;
+    row.onclick = () => { currentSmart = null; activeTag = null; currentFolder = absPath; renderTree(); renderPinnedFolders(); renderGrid(); };
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: '📌 즐겨찾기 폴더에서 해제', action: () => togglePinnedFolder(relPath) },
+        { label: '탐색기에서 보기', action: () => ipcRenderer.invoke('show-in-explorer', absPath) },
+        ...(clipboardPaths.length ? [{ sep: true }, { label: `📋 여기에 붙여넣기 (${clipboardPaths.length}개)`, action: () => pasteClipboardFiles(absPath) }] : [])
+      ]);
+    });
+    // 2026-07-20: 그리드 썸네일 드래그가 PureRef 등 외부 앱으로 나갈 수 있도록 네이티브(OS) 드래그로
+    // 전환하면서, 같은 창 안에서의 "그리드 파일을 드래그해서 이 즐겨찾기 폴더로 이동" 기능은 더 이상
+    // 동작하지 않게 됐다(네이티브 드래그는 DOM dragover/drop 이벤트를 발생시키지 않음). 대신 우클릭
+    // 메뉴의 잘라내기 → 여기에 붙여넣기로 옮기면 된다.
+    container.appendChild(row);
+  });
+}
+
+function renderTree() {
+  const container = document.getElementById('folderTree');
+  container.innerHTML = '';
+  function build(node, absPath) {
+    const wrap = document.createElement('div');
+    const hasChildren = node.children && node.children.length > 0;
+    const isCollapsed = collapsedFolders.has(node.relPath);
+    if (node.relPath !== '') {
+      const item = document.createElement('div');
+      item.className = 'tree-item' + (currentSmart === null && currentFolder === absPath ? ' active' : '');
+      item.draggable = true;
+
+      const toggle = document.createElement('span');
+      toggle.className = 'tree-toggle' + (hasChildren ? '' : ' empty');
+      toggle.textContent = hasChildren ? (isCollapsed ? '▸' : '▾') : '';
+      toggle.onclick = (e) => {
+        e.stopPropagation();
+        if (isCollapsed) collapsedFolders.delete(node.relPath); else collapsedFolders.add(node.relPath);
+        renderTree();
+      };
+      item.appendChild(toggle);
+
+      const label = document.createElement('span');
+      label.className = 'tree-label';
+      label.textContent = '📁 ' + node.name;
+      item.appendChild(label);
+
+      // "+" 버튼은 호버 없이 폴더 이름 바로 옆에 항상 보이게 - 이 폴더의 부모 폴더 안에 만들어서 "옆에" 새 폴더가 생긴다
+      // (하위 폴더를 만들고 싶으면 우클릭 메뉴의 "새 하위 폴더" 사용)
+      const addBtn = document.createElement('span');
+      addBtn.className = 'tree-add-btn';
+      addBtn.title = '옆에 새 폴더 만들기(같은 위치)';
+      addBtn.textContent = '＋';
+      addBtn.onclick = (e) => { e.stopPropagation(); createSubfolder(path.dirname(absPath)); };
+      item.appendChild(addBtn);
+
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = node.imageCount;
+      item.appendChild(count);
+
+      const actions = document.createElement('span');
+      actions.className = 'tree-actions';
+      actions.innerHTML = '<span class="tree-act del" title="폴더 삭제">×</span>';
+      actions.querySelector('.del').onclick = (e) => { e.stopPropagation(); deleteFolder(absPath, node.name); };
+      item.appendChild(actions);
+
+      item.onclick = () => { currentSmart = null; activeTag = null; currentFolder = absPath; renderTree(); renderGrid(); };
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const isPinned = (data.pinnedFolders || []).includes(node.relPath);
+        showContextMenu(e.clientX, e.clientY, [
+          { label: '📁 새 하위 폴더', action: () => createSubfolder(absPath) },
+          { label: '✎ 이름 바꾸기', action: () => renameFolder(absPath, node.name) },
+          { sep: true },
+          { label: isPinned ? '📌 즐겨찾기 폴더에서 해제' : '📌 즐겨찾기 폴더에 고정', action: () => togglePinnedFolder(node.relPath) },
+          { label: '탐색기에서 보기', action: () => ipcRenderer.invoke('show-in-explorer', absPath) },
+          ...(clipboardPaths.length ? [{ sep: true }, { label: `📋 여기에 붙여넣기 (${clipboardPaths.length}개)`, action: () => pasteClipboardFiles(absPath) }] : []),
+          { sep: true },
+          { label: '🗑 삭제 (휴지통으로)', danger: true, action: () => deleteFolder(absPath, node.name) }
+        ]);
+      });
+
+      // ---- 드래그로 폴더 위치(다른 폴더 안으로) 이동 ----
+      // 2026-07-20: 예전엔 그리드의 파일도 여기로 드래그해서 이 폴더로 옮길 수 있었는데(application/x-reflib-files),
+      // 그리드 썸네일 드래그를 PureRef 등 외부 앱으로 나가는 네이티브 드래그로 바꾸면서 그 경로는 더 이상
+      // DOM dragover/drop 이벤트를 안 만들어내 자연히 못 쓰게 됐다. 파일을 폴더로 옮기는 건 우클릭
+      // 잘라내기 → (이 폴더 우클릭) 여기에 붙여넣기로 대체한다. 폴더 자체를 다른 폴더 안으로 옮기는
+      // 이 드래그(application/x-reflib-folder)는 그대로 유지.
+      item.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        e.dataTransfer.setData('application/x-reflib-folder', absPath);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      item.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer.types.includes('application/x-reflib-folder')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      item.addEventListener('drop', (e) => {
+        if (!e.dataTransfer.types.includes('application/x-reflib-folder')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        item.classList.remove('drag-over');
+        const srcPath = e.dataTransfer.getData('application/x-reflib-folder');
+        moveFolderTo(srcPath, absPath);
+      });
+
+      wrap.appendChild(item);
+    }
+    if (hasChildren && !isCollapsed) {
+      const childWrap = document.createElement('div');
+      childWrap.className = 'tree-children';
+      node.children.forEach(c => {
+        const childAbs = path.join(root, c.relPath);
+        childWrap.appendChild(build(c, childAbs));
+      });
+      wrap.appendChild(childWrap);
+    }
+    return wrap;
+  }
+  container.appendChild(build(tree, root));
+}
+
+// 폴더 트리 빈 공간에서 오른쪽 클릭하면 최상위에 새 폴더 생성
+document.getElementById('folderTree').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (!root) return;
+  showContextMenu(e.clientX, e.clientY, [
+    { label: '📁 새 폴더', action: () => createSubfolder(root) }
+  ]);
+});
+
+// 폴더 트리 빈 공간(폴더 항목이 아닌 곳)에 드롭하면 최상위(루트)로 이동
+document.getElementById('folderTree').addEventListener('dragover', (e) => {
+  if (!e.dataTransfer.types.includes('application/x-reflib-folder')) return;
+  if (e.target.closest('.tree-item')) return; // 폴더 항목 위는 그 항목의 자체 드롭 처리에 맡김
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+});
+document.getElementById('folderTree').addEventListener('drop', (e) => {
+  if (!e.dataTransfer.types.includes('application/x-reflib-folder')) return;
+  if (e.target.closest('.tree-item')) return;
+  e.preventDefault();
+  const srcPath = e.dataTransfer.getData('application/x-reflib-folder');
+  moveFolderTo(srcPath, root);
+});
+
+// 드래그한 폴더(srcPath)를 destParentAbsPath 폴더 안으로 옮긴다 (자기 자신/자기 하위로는 옮길 수 없음)
+async function moveFolderTo(srcPath, destParentAbsPath) {
+  if (!srcPath || !destParentAbsPath) return;
+  if (srcPath === destParentAbsPath) return; // 제자리
+  if (path.dirname(srcPath) === destParentAbsPath) return; // 이미 그 위치에 있음
+  if ((destParentAbsPath + path.sep).startsWith(srcPath + path.sep) || destParentAbsPath === srcPath) {
+    alert('폴더를 자기 자신이나 하위 폴더 안으로는 옮길 수 없습니다.');
+    return;
+  }
+  const r = await ipcRenderer.invoke('move-folder', { srcPath, destParentDir: destParentAbsPath });
+  if (!r.success) { alert('폴더 이동 실패: ' + r.error); return; }
+  if (currentFolder === srcPath) currentFolder = r.path;
+  else if (currentFolder && currentFolder.startsWith(srcPath + path.sep)) {
+    currentFolder = r.path + currentFolder.slice(srcPath.length);
+  }
+  // 즐겨찾기 폴더로 고정해뒀다면 새 경로 기준으로 relPath를 갱신
+  if (data.pinnedFolders && data.pinnedFolders.length) {
+    const oldRel = relKey(srcPath);
+    const newRel = relKey(r.path);
+    data.pinnedFolders = data.pinnedFolders.map(p => (p === oldRel ? newRel : (p.startsWith(oldRel + '/') ? newRel + p.slice(oldRel.length) : p)));
+    saveData();
+  }
+  await refreshTreeAndImages();
+}
+
+// 중앙 그리드에서 드래그한 파일들(paths)을 destFolderAbsPath 폴더로 옮긴다
+async function moveFilesToFolder(paths, destFolderAbsPath) {
+  if (!paths || !paths.length || !destFolderAbsPath) return;
+  const r = await ipcRenderer.invoke('move-files', { paths, destDir: destFolderAbsPath });
+  if (r.errors && r.errors.length) {
+    alert('일부 파일 이동 실패:\n' + r.errors.map(e => e.path + ' - ' + e.error).join('\n'));
+  }
+  clearSelection();
+  await refreshTreeAndImages();
+}
+
+// ---- 공용 오른쪽 클릭 메뉴 ----
+function showContextMenu(x, y, items) {
+  let menu = document.getElementById('ctxMenu');
+  if (!menu) {
+    menu = document.createElement('div');
+    menu.id = 'ctxMenu';
+    document.body.appendChild(menu);
+  }
+  menu.innerHTML = '';
+  items.forEach(it => {
+    if (it.sep) { const sep = document.createElement('div'); sep.className = 'ctx-sep'; menu.appendChild(sep); return; }
+    const el = document.createElement('div');
+    el.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    el.textContent = it.label;
+    el.onclick = () => { hideContextMenu(); it.action(); };
+    menu.appendChild(el);
+  });
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = Math.max(0, window.innerWidth - rect.width - 4) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = Math.max(0, window.innerHeight - rect.height - 4) + 'px';
+  });
+}
+function hideContextMenu() {
+  const menu = document.getElementById('ctxMenu');
+  if (menu) menu.classList.remove('show');
+}
+document.addEventListener('click', hideContextMenu);
+document.addEventListener('contextmenu', (e) => {
+  // 메뉴 자체를 우클릭한 게 아니면(=다른 곳을 우클릭하면) 기존 메뉴부터 닫기
+  if (!e.target.closest('#ctxMenu')) hideContextMenu();
+});
+window.addEventListener('blur', hideContextMenu);
+
+// window.prompt()가 이 Electron 창에서는 지원되지 않아서("prompt() is and will not be supported" 오류) 직접 만든 입력 모달.
+// 사용법은 기존 prompt()와 동일하게 await showPromptDialog(message, defaultValue) -> 입력값(취소 시 null)
+function showPromptDialog(message, defaultValue) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('promptOverlay');
+    const msgEl = document.getElementById('promptMessage');
+    const input = document.getElementById('promptInput');
+    const okBtn = document.getElementById('promptOk');
+    const cancelBtn = document.getElementById('promptCancel');
+
+    msgEl.textContent = message;
+    input.value = defaultValue || '';
+    overlay.classList.add('show');
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+
+    function cleanup(result) {
+      overlay.classList.remove('show');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onOk() { cleanup(input.value.trim() || null); }
+    function onCancel() { cleanup(null); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+  });
+}
+
+async function renameFolder(absPath, oldName) {
+  const newName = await showPromptDialog('새 이름', oldName);
+  if (!newName || newName === oldName) return;
+  const r = await ipcRenderer.invoke('rename-folder', { oldPath: absPath, newName });
+  if (!r.success) { alert('이름 변경 실패: ' + r.error); return; }
+  if (currentFolder === absPath) currentFolder = r.path;
+  await refreshTreeAndImages();
+}
+
+async function createSubfolder(parentAbsPath) {
+  const name = await showPromptDialog('새 폴더 이름');
+  if (!name) return;
+  const r = await ipcRenderer.invoke('create-folder', { parentDir: parentAbsPath, name });
+  if (r.success) refreshTreeAndImages();
+  else alert('폴더 생성 실패: ' + r.error);
+}
+
+async function deleteFolder(absPath, name) {
+  if (!confirm(`"${name}" 폴더를 휴지통으로 이동할까요?\n안의 이미지와 하위 폴더가 모두 함께 이동됩니다.`)) return;
+  const r = await ipcRenderer.invoke('delete-folder', absPath);
+  if (!r.success) { alert('폴더 삭제 실패: ' + r.error); return; }
+  // 지금 보고 있던 폴더이거나 그 하위 폴더였다면 전체 보기로 전환
+  if (currentFolder === absPath || (currentFolder && currentFolder.startsWith(absPath + path.sep))) {
+    currentFolder = null;
+    currentSmart = 'all';
+  }
+  await refreshTreeAndImages();
+}
+
+function updateSmartCounts() {
+  document.getElementById('cntAll').textContent = allImagesCache.length;
+  document.getElementById('cntFav').textContent = (data.favorites || []).length;
+  document.querySelectorAll('.smart-item').forEach(el => {
+    el.classList.toggle('active', currentSmart === el.dataset.smart);
+  });
+}
+document.querySelectorAll('.smart-item').forEach(el => {
+  el.onclick = () => { currentSmart = el.dataset.smart; currentFolder = null; activeTag = null; updateSmartCounts(); renderTree(); renderGrid(); };
+});
+
+function allTags() {
+  const set = new Set();
+  Object.values(data.tags).forEach(arr => arr.forEach(t => set.add(t)));
+  return Array.from(set).sort();
+}
+
+function renderTagCloud() {
+  const container = document.getElementById('tagCloud');
+  container.innerHTML = '';
+  allTags().forEach(tag => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
+    chip.textContent = tag;
+    chip.onclick = () => { activeTag = (activeTag === tag ? null : tag); currentSmart = null; currentFolder = null; renderTagCloud(); renderGrid(); };
+    container.appendChild(chip);
+  });
+}
+
+function currentImageList() {
+  let list;
+  if (currentSmart === 'ai-similar') {
+    list = aiSimilarResults || [];
+    if (searchQuery) list = list.filter(img => img.name.toLowerCase().includes(searchQuery));
+    return list; // 유사도 순서를 그대로 유지 (최신순 정렬 적용 안 함)
+  } else if (activeTag) {
+    list = allImagesCache.filter(img => (data.tags[relKey(img.path)] || []).includes(activeTag));
+  } else if (currentSmart === 'all') {
+    list = allImagesCache;
+  } else if (currentSmart === 'no-tag') {
+    list = allImagesCache.filter(img => !(data.tags[relKey(img.path)] || []).length);
+  } else if (currentSmart === 'favorites') {
+    list = allImagesCache.filter(img => (data.favorites || []).includes(relKey(img.path)));
+  } else if (currentFolder) {
+    if (recursive) {
+      const prefix = currentFolder + path.sep;
+      list = allImagesCache.filter(img => img.path.startsWith(prefix));
+    } else {
+      list = allImagesCache.filter(img => path.dirname(img.path) === currentFolder);
+    }
+  } else {
+    list = allImagesCache;
+  }
+  if (searchQuery) list = list.filter(img => img.name.toLowerCase().includes(searchQuery));
+  // 최근에 추가/수정된 파일이 맨 위로 오도록 정렬 (새로 받은 이미지를 바로 찾을 수 있게)
+  return list.slice().sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  if (!root) { grid.innerHTML = '<div id="emptyMsg">먼저 "라이브러리 열기"로 이미지 폴더를 선택하세요.</div>'; return; }
+  const list = currentImageList();
+  if (!list.length) { grid.innerHTML = '<div id="emptyMsg">표시할 이미지가 없습니다.</div>'; return; }
+
+  // 이미지는 화면에 보일 때만, 원본 대신 축소 캐시 썸네일을 불러와 표시 (파일이 많은 폴더에서 그리드가 멈추는 문제 방지)
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const target = entry.target;
+        observer.unobserve(target);
+        const img = target.querySelector('img');
+        if (img && !img.src) {
+          const absPath = target.dataset.path;
+          ensureImageThumbnail(absPath).then(cachePath => {
+            img.src = toFileUrl(cachePath || absPath); // 캐시 생성 실패 시에만 원본으로 대체
+          });
+        }
+      }
+    });
+  }, { root: grid, rootMargin: '300px' });
+
+  // 3D 모델(.obj)/동영상(mp4 등)/웹 임베드는 화면에 보일 때만 실제 썸네일을 만들어 아이콘 대신 넣는다 (무거운 작업이라 지연 로딩)
+  const iconThumbObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const target = entry.target;
+        iconThumbObserver.unobserve(target);
+        const absPath = target.dataset.path;
+        const kind = target.dataset.kind;
+        const thumbPromise = kind === 'model' ? ensureObjThumbnail(absPath)
+          : kind === 'video' ? ensureVideoThumbnail(absPath)
+          : kind === 'embed' ? ensureEmbedThumbnail(absPath, target.dataset.embedUrl)
+          : kind === 'link' ? ensureLinkThumbnail(absPath, target.dataset.linkImage)
+          : kind === 'miniwin' ? ensureMiniwinThumbnail(absPath)
+          : Promise.resolve(null);
+        thumbPromise.then(cachePath => {
+          if (!cachePath) return;
+          const iconDiv = target.querySelector('.thumb-icon');
+          if (!iconDiv) return;
+          const img = document.createElement('img');
+          img.draggable = true;
+          img.src = toFileUrl(cachePath);
+          // 2026-07-20: PureRef 등 외부 앱으로 정상적으로 드래그되도록 네이티브(OS) 드래그로 전환
+          // (자세한 이유는 아래 메인 그리드 dragstart 주석 참고). 같은 창 안의 폴더 트리 드래그 이동은
+          // 우클릭 잘라내기/붙여넣기로 대체됐다.
+          img.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            const paths = (selectedPaths.size > 1 && selectedPaths.has(absPath)) ? Array.from(selectedPaths) : [absPath];
+            ipcRenderer.send('start-native-drag', paths);
+          });
+          iconDiv.replaceWith(img);
+        });
+      }
+    });
+  }, { root: grid, rootMargin: '300px' });
+
+  list.forEach((imgData, idx) => {
+    const div = document.createElement('div');
+    const kind = imgData.kind || 'image';
+    div.className = 'thumb' + (kind === 'link' ? ' kind-link' : '') + (selectedPaths.has(imgData.path) ? ' selected' : '');
+    div.dataset.path = imgData.path;
+    div.dataset.kind = kind;
+    if (imgData.embedUrl) div.dataset.embedUrl = imgData.embedUrl;
+    if (imgData.linkImage) div.dataset.linkImage = imgData.linkImage;
+    const isFav = (data.favorites || []).includes(relKey(imgData.path));
+    if (kind === 'image') {
+      div.innerHTML = '<img draggable="true"><div class="fname">' + escapeHtml(imgData.name) + '</div>' + (isFav ? '<div class="fav-badge">★</div>' : '');
+    } else {
+      // 웹 임베드/링크/미니창 항목은 실제 파일명(.pinembed/.weblink/.miniwin) 대신 저장할 때 붙인 제목을 보여준다
+      const label = (kind === 'embed' && imgData.embedTitle) ? imgData.embedTitle
+        : (kind === 'link' && imgData.linkTitle) ? imgData.linkTitle
+        : (kind === 'miniwin' && imgData.miniwinTitle) ? imgData.miniwinTitle
+        : imgData.name;
+      // 기사/링크, 텍스트 파일 카드는 제목 아래에 요약(발췌)까지 보여줘서 그리드만 보고도 무슨 내용인지 알 수 있게 한다
+      const excerptHtml = (kind === 'link' && imgData.linkExcerpt) ? '<div class="fexcerpt">' + escapeHtml(imgData.linkExcerpt) + '</div>'
+        : (kind === 'doc' && imgData.textExcerpt) ? '<div class="fexcerpt">' + escapeHtml(imgData.textExcerpt) + '</div>'
+        : '';
+      div.innerHTML = '<div class="thumb-icon" draggable="true">' + iconForKind(kind) + '</div><div class="fname">' + escapeHtml(label) + '</div>' + excerptHtml + (isFav ? '<div class="fav-badge">★</div>' : '');
+    }
+    div.onclick = (e) => handleThumbClick(idx, list, e);
+    div.ondblclick = () => openItem(imgData.path, kind);
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // 이미 다중 선택된 항목을 우클릭하면 선택을 유지해서 전체에 적용, 아니면 이 항목만 단일 선택으로 전환
+      if (!selectedPaths.has(imgData.path)) handleThumbClick(idx, list, {});
+      showThumbContextMenu(e.clientX, e.clientY);
+    });
+    const dragEl = div.querySelector('img') || div.querySelector('.thumb-icon');
+    dragEl.addEventListener('dragstart', (e) => {
+      // 2026-07-20: 예전엔 일반 HTML5 드래그(+ 'DownloadURL')를 썼는데, 이건 브라우저가 "웹페이지 이미지를
+      // 탐색기로 저장"하는 용도로 만든 특수 프로토콜이라 탐색기 정도만 인식하고 PureRef 같은 일반
+      // 데스크톱 앱은 못 받아서 검은 박스만 뜨는 문제가 있었다. 진짜 OS 레벨 드래그(webContents.startDrag,
+      // 탐색기에서 파일을 끄는 것과 동일)로 바꿔서 PureRef를 포함한 대부분의 프로그램에 정상적으로
+      // 드래그되게 했다. 대신 이 방식은 같은 창 안의 DOM dragover/drop 이벤트를 안 만들어내서, 왼쪽
+      // 폴더 트리로 드래그해서 옮기는 기능은 더 이상 안 되고 우클릭 잘라내기 → 붙여넣기로 대체했다.
+      e.preventDefault();
+      const paths = (selectedPaths.size > 1 && selectedPaths.has(imgData.path)) ? Array.from(selectedPaths) : [imgData.path];
+      ipcRenderer.send('start-native-drag', paths);
+    });
+    grid.appendChild(div);
+    if (kind === 'image') observer.observe(div);
+    if (kind === 'model' || kind === 'video' || kind === 'embed' || kind === 'link' || kind === 'miniwin') iconThumbObserver.observe(div);
+  });
+}
+
+// 그리드 썸네일 클릭 처리: 일반 클릭(단일 선택), Ctrl/Cmd+클릭(토글 추가/제거), Shift+클릭(범위 선택)
+function handleThumbClick(idx, list, e) {
+  const absPath = list[idx].path;
+  if (e.shiftKey && selectionAnchorIndex !== null) {
+    const lo = Math.min(selectionAnchorIndex, idx);
+    const hi = Math.max(selectionAnchorIndex, idx);
+    selectedPaths = new Set(list.slice(lo, hi + 1).map(i => i.path));
+  } else if (e.ctrlKey || e.metaKey) {
+    if (selectedPaths.has(absPath)) selectedPaths.delete(absPath); else selectedPaths.add(absPath);
+    selectionAnchorIndex = idx;
+  } else {
+    selectedPaths = new Set([absPath]);
+    selectionAnchorIndex = idx;
+  }
+  selectedPath = selectedPaths.has(absPath) ? absPath : (selectedPaths.size ? Array.from(selectedPaths)[0] : null);
+  document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('selected', selectedPaths.has(t.dataset.path)));
+  renderDetail();
+}
+
+function clearSelection() {
+  selectedPaths.clear();
+  selectedPath = null;
+  selectionAnchorIndex = null;
+  document.querySelectorAll('.thumb.selected').forEach(t => t.classList.remove('selected'));
+  renderDetail();
+}
+
+// 지금 그리드에 실제로 몇 칸씩 배치되어 있는지(줄당 개수)를 DOM에서 직접 측정 - flex-wrap이라 폭에 따라 줄당 개수가 바뀌기 때문에
+// 고정값을 쓰지 않고, 첫 줄에 있는(offsetTop이 같은) 항목 수를 세서 위/아래 화살표 이동 폭으로 사용한다.
+function getGridColumns() {
+  const thumbs = Array.from(document.querySelectorAll('#grid .thumb'));
+  if (!thumbs.length) return 1;
+  const firstTop = thumbs[0].offsetTop;
+  let count = 0;
+  for (const t of thumbs) {
+    if (t.offsetTop === firstTop) count++;
+    else break;
+  }
+  return Math.max(1, count);
+}
+
+// 방향키로 그리드 안에서 선택 이동 (기본 스크롤 동작은 막는다)
+document.addEventListener('keydown', (e) => {
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // 태그/메모/검색창 입력 중에는 방향키를 그대로 커서 이동에 사용
+  if (!root) return;
+  const list = currentImageList();
+  if (!list.length) return;
+
+  e.preventDefault();
+
+  const cols = getGridColumns();
+  const curIdx = selectedPath ? list.findIndex(i => i.path === selectedPath) : -1;
+
+  let nextIdx;
+  if (curIdx === -1) {
+    nextIdx = 0;
+  } else if (e.key === 'ArrowRight') {
+    nextIdx = Math.min(list.length - 1, curIdx + 1);
+  } else if (e.key === 'ArrowLeft') {
+    nextIdx = Math.max(0, curIdx - 1);
+  } else if (e.key === 'ArrowDown') {
+    nextIdx = Math.min(list.length - 1, curIdx + cols);
+  } else {
+    nextIdx = Math.max(0, curIdx - cols);
+  }
+
+  const nextPath = list[nextIdx].path;
+  if (e.shiftKey && curIdx !== -1) {
+    if (selectionAnchorIndex === null) selectionAnchorIndex = curIdx;
+    const lo = Math.min(selectionAnchorIndex, nextIdx);
+    const hi = Math.max(selectionAnchorIndex, nextIdx);
+    selectedPaths = new Set(list.slice(lo, hi + 1).map(i => i.path));
+  } else {
+    selectedPaths = new Set([nextPath]);
+    selectionAnchorIndex = nextIdx;
+  }
+  selectedPath = nextPath;
+  document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('selected', selectedPaths.has(t.dataset.path)));
+  renderDetail();
+
+  const el = Array.from(document.querySelectorAll('#grid .thumb')).find(t => t.dataset.path === nextPath);
+  if (el) el.scrollIntoView({ block: 'nearest' });
+});
+
+// Delete 키로 선택된 파일을 휴지통으로 - 태그/메모/검색창 등에서 텍스트 지울 때는 그대로 텍스트 편집에 쓰이게 둔다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Delete') return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (selectedPaths.size > 1) {
+    e.preventDefault();
+    trashImagesAt(Array.from(selectedPaths));
+  } else if (selectedPath) {
+    e.preventDefault();
+    trashImageAt(selectedPath);
+  }
+});
+
+// Ctrl+C / Ctrl+V로 파일 복사·붙여넣기 - 두 가지를 동시에 한다.
+// 1) 앱 안에서 쓰는 자체 클립보드(clipboardPaths): 다른 폴더로 이동해서 Ctrl+V하면 그 폴더에 실제 사본을 만든다.
+// 2) 실제 윈도우 클립보드에도 파일을 올림(write-files-to-os-clipboard): 탐색기·워드·포스트잇 등
+//    레퍼런스 라이브러리 밖의 다른 프로그램에서 Ctrl+V해도 스크린샷 등 엉뚱한 게 아니라 이 파일이 그대로 붙게 하기 위함.
+let clipboardPaths = [];
+let clipboardMode = 'copy'; // 'copy' | 'cut' - 잘라내기(2026-07-20 추가)한 경우 붙여넣기 시 복사 대신 이동한다
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // 텍스트 입력 중엔 기본 복사/붙여넣기를 그대로 쓰게 둔다
+  const key = e.key.toLowerCase();
+  if (key === 'c') {
+    if (!selectedPaths.size) return;
+    e.preventDefault();
+    copyFilesToClipboard(Array.from(selectedPaths));
+  } else if (key === 'x') {
+    if (!selectedPaths.size) return;
+    e.preventDefault();
+    cutFilesToClipboard(Array.from(selectedPaths));
+  } else if (key === 'v') {
+    if (!clipboardPaths.length || !root) return;
+    e.preventDefault();
+    pasteClipboardFiles();
+  }
+});
+
+// 복사/잘라내기 공용 로직 - Ctrl+C·Ctrl+X뿐 아니라 우클릭 메뉴(잘라내기/복사)에서도 그대로 재사용한다.
+function copyFilesToClipboard(paths) {
+  clipboardPaths = paths;
+  clipboardMode = 'copy';
+  markCutPending([]);
+  ipcRenderer.invoke('write-files-to-os-clipboard', clipboardPaths).then(r => {
+    if (!r.success) logError({ message: '윈도우 클립보드 복사 실패(앱 내부 복사는 정상 동작): ' + r.error });
+  });
+}
+function cutFilesToClipboard(paths) {
+  clipboardPaths = paths;
+  clipboardMode = 'cut';
+  markCutPending(paths);
+  // 잘라내기도 실제 윈도우 클립보드에 함께 올려서, 탐색기 등 앱 밖에 Ctrl+V해도 그대로 붙을 수 있게 한다
+  // (다만 원본 삭제 여부는 이 앱 안에서 붙여넣기할 때만 적용되고, 탐색기 쪽은 복사로 동작한다).
+  ipcRenderer.invoke('write-files-to-os-clipboard', clipboardPaths).then(r => {
+    if (!r.success) logError({ message: '윈도우 클립보드 복사 실패(앱 내부 잘라내기는 정상 동작): ' + r.error });
+  });
+}
+// 잘라낸 항목을 탐색기처럼 흐리게 표시해서 "붙여넣기 대기 중"임을 알려준다.
+function markCutPending(paths) {
+  document.querySelectorAll('.thumb.cut-pending').forEach(el => el.classList.remove('cut-pending'));
+  paths.forEach(p => {
+    const el = document.querySelector('.thumb[data-path="' + CSS.escape(p) + '"]');
+    if (el) el.classList.add('cut-pending');
+  });
+}
+async function pasteClipboardFiles(destDirOverride) {
+  if (!clipboardPaths.length) return;
+  const destDir = destDirOverride || currentFolder || root;
+  if (clipboardMode === 'cut') {
+    const r = await ipcRenderer.invoke('move-files', { paths: clipboardPaths, destDir });
+    if (r.errors && r.errors.length) {
+      alert('일부 파일 이동 실패:\n' + r.errors.map(e => e.path + ' - ' + e.error).join('\n'));
+    }
+    // 탐색기와 동일하게, 잘라내기는 한 번 붙여넣으면 클립보드가 비워진다(원본이 이미 옮겨졌으므로).
+    clipboardPaths = [];
+    clipboardMode = 'copy';
+    markCutPending([]);
+  } else {
+    const r = await ipcRenderer.invoke('copy-files', { paths: clipboardPaths, destDir });
+    if (r.errors && r.errors.length) {
+      alert('일부 파일 붙여넣기 실패:\n' + r.errors.map(e => e.path + ' - ' + e.error).join('\n'));
+    }
+  }
+  await refreshTreeAndImages();
+}
+
+// 그리드(중앙 탭) 썸네일 오른쪽 클릭 메뉴 - 폴더 트리와 동일한 방식의 공용 메뉴 재사용
+// 선택된 파일이 1개면 단일 항목 메뉴, 여러 개면 선택된 전체에 적용되는 일괄 메뉴를 보여준다
+function showThumbContextMenu(x, y) {
+  const paths = Array.from(selectedPaths);
+  if (paths.length <= 1) {
+    const absPath = paths[0] || selectedPath;
+    if (!absPath) return;
+    const kind = (allImagesCache.find(i => i.path === absPath) || {}).kind || 'image';
+    const isFav = (data.favorites || []).includes(relKey(absPath));
+    showContextMenu(x, y, [
+      { label: '열기', action: () => openItem(absPath, kind) },
+      { sep: true },
+      ...(kind === 'image' ? [{ label: '🔍 비슷한 이미지 찾기 (AI)', action: () => findSimilarImages(absPath) }] : []),
+      // 2026-07-17: OBJ 배치 뷰어(그리드+3D 배치 앱)로 바로 보낼 수 있는 메뉴 - 드래그앤드롭이 안 되는 대안으로 추가
+      ...(kind === 'model' ? [{ label: '📦 OBJ 배치 뷰어에서 열기', action: () => ipcRenderer.invoke('open-in-obj-placer', [absPath]) }] : []),
+      { label: isFav ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기', action: () => toggleFavorite(absPath) },
+      { label: '✎ 이름 바꾸기', action: () => renameFile(absPath) },
+      { label: '탐색기에서 보기', action: () => ipcRenderer.invoke('show-in-explorer', absPath) },
+      { sep: true },
+      { label: '✂ 잘라내기', action: () => cutFilesToClipboard([absPath]) },
+      { label: '⧉ 복사', action: () => copyFilesToClipboard([absPath]) },
+      ...(clipboardPaths.length ? [{ label: `📋 붙여넣기 (${clipboardPaths.length}개)`, action: () => pasteClipboardFiles() }] : []),
+      { sep: true },
+      { label: '🗑 삭제 (휴지통으로)', danger: true, action: () => trashImageAt(absPath) }
+    ]);
+  } else {
+    const allFav = paths.every(p => (data.favorites || []).includes(relKey(p)));
+    const allPlayable = paths.every(p => ['video', 'embed'].includes((allImagesCache.find(i => i.path === p) || {}).kind));
+    const allModels = paths.every(p => (allImagesCache.find(i => i.path === p) || {}).kind === 'model');
+    showContextMenu(x, y, [
+      ...(allPlayable ? [{ label: `▶ 전체재생 (${paths.length}개)`, action: () => {
+        const orderedItems = currentImageList().filter(i => selectedPaths.has(i.path));
+        playVideoPlaylist(orderedItems);
+      } }, { sep: true }] : []),
+      // 2026-07-17: 여러 개 선택한 .obj를 한 번에 OBJ 배치 뷰어로 보내는 메뉴 (다중 선택 지원)
+      ...(allModels ? [{ label: `📦 OBJ 배치 뷰어에서 열기 (${paths.length}개)`, action: () => ipcRenderer.invoke('open-in-obj-placer', paths) }, { sep: true }] : []),
+      { label: allFav ? `★ 즐겨찾기 해제 (${paths.length}개)` : `☆ 즐겨찾기 추가 (${paths.length}개)`, action: () => toggleFavoriteMany(paths) },
+      { sep: true },
+      { label: `✂ 잘라내기 (${paths.length}개)`, action: () => cutFilesToClipboard(paths) },
+      { label: `⧉ 복사 (${paths.length}개)`, action: () => copyFilesToClipboard(paths) },
+      ...(clipboardPaths.length ? [{ label: `📋 붙여넣기 (${clipboardPaths.length}개)`, action: () => pasteClipboardFiles() }] : []),
+      { sep: true },
+      { label: `🗑 ${paths.length}개 삭제 (휴지통으로)`, danger: true, action: () => trashImagesAt(paths) }
+    ]);
+  }
+}
+
+// ---- AI 이미지 유사 검색 실행 (연결부) ----
+// ai-search.js가 계산해둔 임베딩(.ai-embeddings.json)만 읽어서 비교할 뿐,
+// 여기서도 기존 데이터(data.tags/favorites, .reflib-data.json)는 전혀 건드리지 않는다.
+async function findSimilarImages(absPath) {
+  if (!aiSearch) { alert('AI 검색 모듈을 불러오지 못했습니다.\n(node_modules 설치 여부, 모델 파일 위치를 확인해주세요)'); return; }
+  const key = relKey(absPath);
+  try {
+    const store = aiSearch.loadEmbeddings(root);
+    if (!store.items[key]) {
+      alert('이 이미지는 아직 AI 인덱싱이 안 되어 있습니다.\n(현재는 테스트 단계라 인덱싱된 폴더에서만 동작합니다)');
+      return;
+    }
+    const similar = aiSearch.findSimilar(root, key, 40);
+    aiSimilarResults = similar
+      .map(s => allImagesCache.find(img => relKey(img.path) === s.key))
+      .filter(Boolean);
+    currentSmart = 'ai-similar';
+    currentFolder = null;
+    activeTag = null;
+    renderTree();
+    renderPinnedFolders();
+    renderTagCloud();
+    renderGrid();
+  } catch (err) {
+    alert('유사 이미지 검색 중 오류가 발생했습니다: ' + err.message);
+  }
+}
+
+// ---- 한글(다국어) 텍스트로 이미지 검색 (4단계, 연결부) ----
+async function runAiTextSearch() {
+  if (!aiSearch) { alert('AI 검색 모듈을 불러오지 못했습니다.\n(node_modules 설치 여부, 모델 파일 위치를 확인해주세요)'); return; }
+  if (!root) { alert('먼저 라이브러리를 선택하세요.'); return; }
+  const query = prompt('찾고 싶은 이미지를 한글 문장으로 설명해주세요 (예: 웃는 얼굴, 화난 표정)');
+  if (!query || !query.trim()) return;
+  try {
+    const results = await aiSearch.searchByText(root, query.trim(), 60);
+    if (!results.length) { alert('인덱싱된 이미지가 없습니다. 먼저 인덱싱을 진행해주세요.'); return; }
+    aiSimilarResults = results
+      .map(s => allImagesCache.find(img => relKey(img.path) === s.key))
+      .filter(Boolean);
+    currentSmart = 'ai-similar';
+    currentFolder = null;
+    activeTag = null;
+    renderTree();
+    renderPinnedFolders();
+    renderTagCloud();
+    renderGrid();
+  } catch (err) {
+    alert('텍스트 검색 중 오류가 발생했습니다: ' + err.message);
+  }
+}
+
+// ---- 새 이미지 AI 인덱싱 실행 (터미널 없이 앱 안에서) ----
+// 이미 인덱싱된 이미지는 ai-search.js의 indexLibrary()가 알아서 건너뛰므로,
+// 새로 추가된 이미지만 계산하면 되는 경우 금방 끝난다.
+let aiIndexingRunning = false;
+async function runAiIndexing() {
+  if (!aiSearch) { alert('AI 검색 모듈을 불러오지 못했습니다.\n(node_modules 설치 여부, 모델 파일 위치를 확인해주세요)'); return; }
+  if (!root) { alert('먼저 라이브러리를 선택하세요.'); return; }
+  if (aiIndexingRunning) return;
+  if (!confirm('현재 폴더에서 아직 인덱싱 안 된 이미지를 찾아 AI 인덱싱합니다.\n이미지 수에 따라 몇 분에서 십여 분 걸릴 수 있고, 끝날 때까지 앱이 다소 느려질 수 있습니다.\n진행할까요?')) return;
+
+  aiIndexingRunning = true;
+  const btn = document.getElementById('btnAiIndex');
+  const status = document.getElementById('aiIndexStatus');
+  const overlay = document.getElementById('aiIndexOverlay');
+  const bar = document.getElementById('aiIndexBar');
+  const overlayText = document.getElementById('aiIndexOverlayText');
+  const elapsedEl = document.getElementById('aiIndexElapsed');
+  const closeBtn = document.getElementById('aiIndexOverlayClose');
+
+  // 시작/종료 "시각"보다, 지금 살아서 돌고 있는지가 바로 보이도록 매초 올라가는 경과시간으로 대체.
+  const startedAt = Date.now();
+  const tick = () => { elapsedEl.textContent = Math.floor((Date.now() - startedAt) / 1000) + '초'; };
+  tick();
+  const timer = setInterval(tick, 1000);
+
+  btn.disabled = true;
+  bar.style.width = '0%';
+  overlayText.textContent = '준비 중...';
+  closeBtn.style.display = 'none';
+  overlay.style.display = 'flex';
+  status.textContent = '인덱싱 준비 중...';
+
+  try {
+    const result = await aiSearch.indexLibrary(root, (done, total) => {
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      bar.style.width = pct + '%';
+      overlayText.textContent = `${done} / ${total}  (${pct}%)`;
+      status.textContent = `인덱싱 중... ${done}/${total}`;
+    });
+    bar.style.width = '100%';
+    overlayText.textContent = `완료: ${result.indexed}/${result.total} (실패 ${result.failed}, 총 ${result.elapsedSec}초 소요)`;
+    status.textContent = `완료: ${result.indexed}/${result.total} (실패 ${result.failed}, ${result.elapsedSec}초)`;
+  } catch (err) {
+    overlayText.textContent = '오류: ' + err.message;
+    status.textContent = '인덱싱 오류';
+  } finally {
+    clearInterval(timer);
+    tick(); // 멈춘 시점의 최종 경과시간을 한 번 더 반영
+    aiIndexingRunning = false;
+    btn.disabled = false;
+    closeBtn.style.display = 'inline-block';
+  }
+}
+document.getElementById('aiIndexOverlayClose').onclick = () => {
+  document.getElementById('aiIndexOverlay').style.display = 'none';
+};
+
+function iconForKind(kind) {
+  if (kind === 'model') return '🧊';
+  if (kind === 'doc') return '📄';
+  if (kind === 'video') return '🎬';
+  if (kind === 'embed') return '📌';
+  if (kind === 'link') return '🔗';
+  if (kind === 'miniwin') return '🗔';
+  return '🗎';
+}
+
+// 더블클릭 -> 종류에 맞는 앱으로 전달 (이미지: 크로키, 3D: obj 뷰어, 문서: OS 기본 프로그램, 웹 임베드: 재생 창)
+async function openItem(absPath, kind) {
+  if (kind === 'model') {
+    const r = await ipcRenderer.invoke('open-in-objviewer', absPath);
+    if (!r.success) alert('obj 뷰어 열기 실패: ' + r.error);
+  } else if (kind === 'embed') {
+    const item = allImagesCache.find(i => i.path === absPath);
+    if (!item || !item.embedUrl) { alert('임베드 주소를 찾을 수 없습니다.'); return; }
+    const r = await ipcRenderer.invoke('open-embed-window', { embedUrl: item.embedUrl, title: item.embedTitle });
+    if (!r.success) alert('임베드 재생 실패: ' + r.error);
+  } else if (kind === 'link') {
+    const r = await ipcRenderer.invoke('open-link-window', { filePath: absPath });
+    if (!r.success) alert('읽기 모드 열기 실패: ' + r.error);
+  } else if (kind === 'miniwin') {
+    const item = allImagesCache.find(i => i.path === absPath);
+    if (!item || !item.miniwinUrl) { alert('저장된 주소를 찾을 수 없습니다.'); return; }
+    const r = await ipcRenderer.invoke('open-mini-window', item.miniwinUrl);
+    if (!r.success) alert('미니창 열기 실패: ' + r.error);
+  } else if (kind === 'doc' && ['.txt', '.md', '.docx'].includes(path.extname(absPath).toLowerCase())) {
+    // txt/md/docx는 앱 안에서 바로 읽을 수 있어 "읽기 모드" 창으로 연다 - pdf는 지원 안 해서 OS 기본 프로그램으로
+    const r = await ipcRenderer.invoke('open-text-window', absPath);
+    if (!r.success) alert('읽기 모드 열기 실패: ' + r.error);
+  } else if (kind === 'doc' || kind === 'other') {
+    const r = await ipcRenderer.invoke('open-with-default', absPath);
+    if (!r.success) alert('파일 열기 실패: ' + r.error);
+  } else {
+    // 이미지/동영상 둘 다 크로키 뷰어로 보낸다 (크로키 뷰어가 동영상이면 프레임 이동/속도 조절 컨트롤로 자동 전환됨)
+    // 지금 그리드에 보이는(현재 폴더) 이미지+동영상 목록 전체와 더블클릭한 항목의 위치를 함께 넘겨서,
+    // 크로키 앱의 '다음/이전'이 이 폴더 안에서 순서대로 넘어가게 한다. (파일 하나만 넘기면 크로키 쪽에
+    // 예전에 열어뒀던 다른 폴더 이미지들 사이에서 다음/이전이 뒤섞이는 문제가 있었음)
+    const folderImages = currentImageList().filter(i => ['image', 'video'].includes(i.kind || 'image')).map(i => i.path);
+    const startIndex = Math.max(0, folderImages.indexOf(absPath));
+    const r = await ipcRenderer.invoke('open-in-croquis', { filePath: absPath, folderImages, startIndex });
+    if (!r.success) alert('크로키 앱 열기 실패: ' + r.error);
+  }
+}
+
+async function enterDocEditMode(targetPath) {
+  const wrapEl = document.getElementById('detailDoc');
+  if (!wrapEl) return;
+  wrapEl.innerHTML = `<div class="detail-icon">불러오는 중...</div>`;
+  const r = await ipcRenderer.invoke('read-text-full', targetPath);
+  if (selectedPath !== targetPath) return; // 로딩 중 다른 항목으로 넘어감
+  if (!r.success) { wrapEl.innerHTML = `<div class="detail-icon">편집 불러오기 실패: ${escapeHtml(r.error)}</div>`; return; }
+  wrapEl.innerHTML = `
+    <textarea id="docEditArea" style="width:100%;min-height:360px;background:#181818;color:#eee;border:1px solid #333;border-radius:6px;padding:10px;font-size:13px;line-height:1.6;font-family:inherit;box-sizing:border-box;">${escapeHtml(r.content)}</textarea>
+    <div style="margin-top:8px;">
+      <button id="btnDocSave">저장</button>
+      <button id="btnDocCancel">취소</button>
+    </div>
+  `;
+  document.getElementById('docEditArea').focus();
+  document.getElementById('btnDocCancel').onclick = () => renderDetail();
+  document.getElementById('btnDocSave').onclick = async () => {
+    const content = document.getElementById('docEditArea').value;
+    const saveBtn = document.getElementById('btnDocSave');
+    saveBtn.disabled = true; saveBtn.textContent = '저장 중...';
+    const sr = await ipcRenderer.invoke('write-text-file', { filePath: targetPath, content });
+    if (!sr.success) { alert('저장 실패: ' + sr.error); saveBtn.disabled = false; saveBtn.textContent = '저장'; return; }
+    renderDetail();
+  };
+}
+
+function renderDetail() {
+  const detail = document.getElementById('detailScroll');
+  if (selectedPaths.size > 1) { renderBulkDetail(detail); return; }
+  if (!selectedPath) { detail.innerHTML = '<div id="noSelection">이미지를 선택하세요</div>'; return; }
+  const key = relKey(selectedPath);
+  const tags = data.tags[key] || [];
+  const note = data.notes[key] || '';
+  const isFav = (data.favorites || []).includes(key);
+  const imgInfo = allImagesCache.find(i => i.path === selectedPath) || {};
+  const kind = imgInfo.kind || 'image';
+  const sizeKb = imgInfo.size ? (imgInfo.size / 1024).toFixed(1) + ' KB' : '';
+  // txt/md/docx는 문서(doc)이지만 앱 안에서 바로 텍스트를 읽을 수 있다 - pdf는 지원하지 않아 기존처럼 아이콘만 보여준다
+  const isTextDoc = kind === 'doc' && ['.txt', '.md', '.docx'].includes(path.extname(selectedPath).toLowerCase());
+  // docx는 바이너리라 편집 시 파일이 깨지므로 txt/md만 편집 가능
+  const isEditableDoc = kind === 'doc' && ['.txt', '.md'].includes(path.extname(selectedPath).toLowerCase());
+  // 미니창 항목은 저장 시점에 이미 썸네일이 캐시돼 있으므로(있다면) 비동기 로딩 없이 바로 보여준다.
+  const miniwinThumbCache = kind === 'miniwin' ? thumbCachePath(selectedPath, 'jpg') : null;
+  const hasMiniwinThumb = miniwinThumbCache && fs.existsSync(miniwinThumbCache);
+  const previewHtml = kind === 'image'
+    ? `<img id="detailImg" src="${toFileUrl(selectedPath)}">`
+    : kind === 'video'
+    ? `<video id="detailVideo" src="${toFileUrl(selectedPath)}" controls></video>`
+    : (kind === 'embed' && imgInfo.embedUrl)
+    ? `<div class="detail-icon" id="detailEmbedLoading" style="height:360px;">불러오는 중...</div>`
+    : kind === 'link'
+    ? `<div id="detailLink"><div class="detail-icon" id="detailLinkLoading">불러오는 중...</div></div>`
+    : (kind === 'miniwin' && hasMiniwinThumb)
+    ? `<img id="detailImg" src="${toFileUrl(miniwinThumbCache)}">`
+    : isTextDoc
+    ? `<div id="detailDoc"><div class="detail-icon" id="detailDocLoading">불러오는 중...</div></div>`
+    : `<div class="detail-icon" id="detailIcon">${iconForKind(kind)}</div>`;
+
+  detail.innerHTML = `
+    ${previewHtml}
+    <div class="row"><b>${escapeHtml(path.basename(selectedPath))}</b></div>
+    <div class="row" id="dimRow">크기: ${sizeKb}</div>
+    <div class="row">경로: ${escapeHtml(selectedPath)}</div>
+    <label>태그</label>
+    <div id="tagList"></div>
+    <input type="text" id="tagInput" placeholder="태그 입력 후 Enter">
+    <label style="margin-top:8px;">메모</label>
+    <textarea id="noteInput" placeholder="메모...">${escapeHtml(note)}</textarea>
+    <div>
+      <button id="btnFav">${isFav ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기'}</button>
+      <button id="btnRename">✎ 이름 바꾸기</button>
+      <button id="btnShowExplorer">탐색기에서 보기</button>
+      ${kind !== 'image' ? '<button id="btnOpenExternal">앱으로 열기</button>' : ''}
+      ${isEditableDoc ? '<button id="btnEditDoc">편집</button>' : ''}
+      ${kind === 'link' && imgInfo.linkUrl ? '<button id="btnOpenBrowser">브라우저에서 원문 보기</button>' : ''}
+      <button id="btnTrash">삭제(휴지통)</button>
+    </div>
+  `;
+
+  if (kind === 'link' && imgInfo.linkUrl) {
+    document.getElementById('btnOpenBrowser').onclick = () => shell.openExternal(imgInfo.linkUrl);
+  }
+
+  if (kind === 'image') {
+    const dimImg = document.getElementById('detailImg');
+    dimImg.onload = () => {
+      document.getElementById('dimRow').textContent = `크기: ${sizeKb} · ${dimImg.naturalWidth}×${dimImg.naturalHeight}`;
+    };
+  }
+
+  if (kind === 'model') {
+    const targetPath = selectedPath; // 렌더링 끝나기 전에 다른 파일을 선택하면 결과를 버리기 위한 확인용
+    ensureObjThumbnail(targetPath).then(cachePath => {
+      if (!cachePath || selectedPath !== targetPath) return;
+      const iconEl = document.getElementById('detailIcon');
+      if (!iconEl) return;
+      const img = document.createElement('img');
+      img.id = 'detailImg';
+      img.src = toFileUrl(cachePath);
+      iconEl.replaceWith(img);
+    });
+  }
+
+  if (kind === 'embed' && imgInfo.embedUrl) {
+    const targetPath = selectedPath; // 응답 오기 전에 다른 항목을 선택했으면 결과를 버림
+    ipcRenderer.invoke('get-embed-preview-url', { embedUrl: imgInfo.embedUrl }).then(r => {
+      if (selectedPath !== targetPath) return; // 이미 다른 항목으로 넘어감
+      const loadingEl = document.getElementById('detailEmbedLoading');
+      if (!loadingEl) return;
+      if (!r.success) { loadingEl.textContent = '미리보기 실패: ' + r.error; return; }
+      const iframe = document.createElement('iframe');
+      iframe.id = 'detailEmbed';
+      iframe.src = r.url;
+      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+      iframe.setAttribute('allowfullscreen', '');
+      iframe.style.cssText = 'width:100%;height:360px;border:0;background:#000;';
+      loadingEl.replaceWith(iframe);
+    });
+  }
+
+  if (kind === 'link') {
+    const targetPath = selectedPath; // 응답 오기 전에 다른 항목을 선택했으면 결과를 버림
+    ipcRenderer.invoke('read-web-link', selectedPath).then(r => {
+      if (selectedPath !== targetPath) return;
+      const wrapEl = document.getElementById('detailLink');
+      if (!wrapEl) return;
+      if (!r.success) { wrapEl.innerHTML = `<div class="detail-icon">미리보기 실패: ${escapeHtml(r.error)}</div>`; return; }
+      const d = r.data;
+      const paras = (d.paragraphs || []).slice(0, 6); // 상세 패널에는 앞부분만 - 전체는 "앱으로 열기"의 읽기 모드 창에서 본다
+      wrapEl.innerHTML = `
+        ${d.image ? `<img src="${escapeHtml(d.image)}" style="width:100%;border-radius:6px;margin-bottom:8px;background:#181818;">` : ''}
+        <div style="font-weight:600;margin-bottom:6px;line-height:1.4;">${escapeHtml(d.title || '')}</div>
+        ${paras.length
+          ? paras.map(p => `<div style="font-size:12.5px;color:#bbb;margin-bottom:6px;line-height:1.6;">${escapeHtml(p)}</div>`).join('')
+          : `<div style="font-size:12.5px;color:#888;font-style:italic;">${escapeHtml(d.excerpt || '본문 자동 추출에 실패했습니다. 원문 링크에서 확인해 주세요.')}</div>`}
+        ${(d.paragraphs || []).length > 6 ? '<div style="font-size:12px;color:#888;">계속 읽으려면 "앱으로 열기"를 눌러주세요.</div>' : ''}
+      `;
+    });
+  }
+
+  if (isTextDoc) {
+    const targetPath = selectedPath; // 응답 오기 전에 다른 항목을 선택했으면 결과를 버림
+    ipcRenderer.invoke('read-doc-text', selectedPath).then(r => {
+      if (selectedPath !== targetPath) return;
+      const wrapEl = document.getElementById('detailDoc');
+      if (!wrapEl) return;
+      if (!r.success) { wrapEl.innerHTML = `<div class="detail-icon">미리보기 실패: ${escapeHtml(r.error)}</div>`; return; }
+      const preview = (r.content || '').slice(0, 1200); // 상세 패널에는 앞부분만 - 전체는 "앱으로 열기"의 읽기 모드 창에서 본다
+      wrapEl.innerHTML = `
+        <pre style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;color:#ccc;line-height:1.6;max-height:360px;overflow-y:auto;background:#181818;border-radius:6px;padding:10px;margin:0;">${escapeHtml(preview)}</pre>
+        ${(r.content || '').length > 1200 ? '<div style="font-size:12px;color:#888;margin-top:4px;">계속 읽으려면 "앱으로 열기"를 눌러주세요.</div>' : ''}
+      `;
+    });
+  }
+
+  const btnOpenExternal = document.getElementById('btnOpenExternal');
+  if (btnOpenExternal) btnOpenExternal.onclick = () => openItem(selectedPath, kind);
+
+  const btnEditDoc = document.getElementById('btnEditDoc');
+  if (btnEditDoc) btnEditDoc.onclick = () => enterDocEditMode(selectedPath);
+
+  const tagListEl = document.getElementById('tagList');
+  tags.forEach(t => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = escapeHtml(t) + ' <span class="x">×</span>';
+    chip.querySelector('.x').onclick = () => {
+      data.tags[key] = (data.tags[key] || []).filter(x => x !== t);
+      saveData(); renderDetail(); renderTagCloud(); updateSmartCounts();
+    };
+    tagListEl.appendChild(chip);
+  });
+
+  document.getElementById('tagInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.value.trim()) {
+      const t = e.target.value.trim();
+      data.tags[key] = data.tags[key] || [];
+      if (!data.tags[key].includes(t)) data.tags[key].push(t);
+      e.target.value = '';
+      saveData(); renderDetail(); renderTagCloud(); updateSmartCounts();
+    }
+  });
+
+  document.getElementById('noteInput').addEventListener('change', (e) => {
+    data.notes[key] = e.target.value;
+    saveData();
+  });
+
+  document.getElementById('btnFav').onclick = () => toggleFavorite(selectedPath);
+  document.getElementById('btnRename').onclick = () => renameFile(selectedPath);
+  document.getElementById('btnShowExplorer').onclick = () => ipcRenderer.invoke('show-in-explorer', selectedPath);
+  document.getElementById('btnTrash').onclick = () => trashImageAt(selectedPath);
+}
+
+// 즐겨찾기 토글 - 상세 패널 버튼과 그리드 우클릭 메뉴가 공통으로 사용
+function toggleFavorite(absPath) {
+  const key = relKey(absPath);
+  data.favorites = data.favorites || [];
+  const idx = data.favorites.indexOf(key);
+  if (idx >= 0) data.favorites.splice(idx, 1); else data.favorites.push(key);
+  saveData(); renderDetail(); renderGrid(); updateSmartCounts();
+}
+
+// 파일 이름 바꾸기 - 상세 패널 버튼과 그리드 우클릭 메뉴가 공통으로 사용.
+// 확장자는 입력창에 보여주지 않고 자동으로 그대로 유지한다 - 매번 직접 타이핑할 필요 없게.
+async function renameFile(absPath) {
+  const ext = path.extname(absPath);
+  const oldStem = path.basename(absPath, ext);
+  const newStem = await showPromptDialog('새 이름', oldStem);
+  if (!newStem || newStem === oldStem) return;
+  const newName = newStem + ext;
+  const r = await ipcRenderer.invoke('rename-file', { oldPath: absPath, newName });
+  if (!r.success) { alert('이름 변경 실패: ' + r.error); return; }
+  // 태그/메모/즐겨찾기는 상대 경로를 키로 저장하므로, 경로가 바뀌면 그 키도 함께 옮겨줘야 기존 정보가 유지된다
+  const oldKey = relKey(absPath);
+  const newKey = relKey(r.path);
+  if (data.tags[oldKey]) { data.tags[newKey] = data.tags[oldKey]; delete data.tags[oldKey]; }
+  if (data.notes[oldKey]) { data.notes[newKey] = data.notes[oldKey]; delete data.notes[oldKey]; }
+  const favIdx = (data.favorites || []).indexOf(oldKey);
+  if (favIdx >= 0) data.favorites[favIdx] = newKey;
+  saveData();
+  if (selectedPath === absPath) selectedPath = r.path;
+  if (selectedPaths.has(absPath)) { selectedPaths.delete(absPath); selectedPaths.add(r.path); }
+  await refreshTreeAndImages();
+  renderDetail();
+}
+
+// 파일을 휴지통으로 이동 - 상세 패널 버튼과 그리드 우클릭 메뉴가 공통으로 사용
+async function trashImageAt(absPath) {
+  if (!confirm('휴지통으로 이동할까요?')) return;
+  const r = await ipcRenderer.invoke('trash-file', absPath);
+  if (r.success) {
+    const key = relKey(absPath);
+    delete data.tags[key]; delete data.notes[key];
+    data.favorites = (data.favorites || []).filter(x => x !== key);
+    saveData();
+    selectedPaths.delete(absPath);
+    if (selectedPath === absPath) selectedPath = null;
+    await refreshTreeAndImages();
+    renderDetail();
+  } else alert('삭제 실패: ' + r.error);
+}
+
+// ---- 다중 선택 시 상세 패널에 표시되는 일괄 작업 패널 ----
+function renderBulkDetail(detail) {
+  const paths = Array.from(selectedPaths);
+  const totalBytes = paths.reduce((sum, p) => sum + ((allImagesCache.find(i => i.path === p) || {}).size || 0), 0);
+  const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+  const allFav = paths.every(p => (data.favorites || []).includes(relKey(p)));
+  // 선택한 파일이 전부 동영상/웹 임베드면 "전체재생" 버튼을 보여준다 - 재생 순서는 클릭한 순서가 아니라 그리드에 보이는 순서를 따른다
+  const allPlayable = paths.length > 1 && paths.every(p => ['video', 'embed'].includes((allImagesCache.find(i => i.path === p) || {}).kind));
+  detail.innerHTML = `
+    <div class="row"><b>${paths.length}개 선택됨</b></div>
+    <div class="row">총 크기: ${totalMb} MB</div>
+    <div>
+      ${allPlayable ? '<button id="btnBulkPlayAll">▶ 전체재생</button>' : ''}
+      <button id="btnBulkFav">${allFav ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기 추가'}</button>
+      <button id="btnBulkTrash">삭제(휴지통)</button>
+    </div>
+    <div class="row" style="margin-top:12px; color:#777;">Ctrl/Cmd+클릭으로 개별 선택 추가·제거, Shift+클릭으로 범위 선택할 수 있습니다.</div>
+  `;
+  if (allPlayable) {
+    document.getElementById('btnBulkPlayAll').onclick = () => {
+      const orderedItems = currentImageList().filter(i => selectedPaths.has(i.path));
+      playVideoPlaylist(orderedItems);
+    };
+  }
+  document.getElementById('btnBulkFav').onclick = () => toggleFavoriteMany(paths);
+  document.getElementById('btnBulkTrash').onclick = () => trashImagesAt(paths);
+}
+
+// 선택한 동영상/웹 임베드를 순서대로 이어서 재생하는 별도 창을 연다.
+// imgItems는 allImagesCache에서 온 항목이라 kind/embedUrl/embedTitle을 그대로 갖고 있다.
+async function playVideoPlaylist(imgItems) {
+  const items = imgItems.map(it => it.kind === 'embed'
+    ? { type: 'embed', embedUrl: it.embedUrl, name: it.embedTitle || path.basename(it.path) }
+    : { type: 'video', url: toFileUrl(it.path), name: path.basename(it.path) });
+  const r = await ipcRenderer.invoke('open-video-playlist', items);
+  if (!r.success) alert('재생 실패: ' + r.error);
+}
+
+// 선택된 여러 파일의 즐겨찾기를 한 번에 토글 (전부 즐겨찾기면 전부 해제, 아니면 전부 추가)
+function toggleFavoriteMany(paths) {
+  data.favorites = data.favorites || [];
+  const allFav = paths.every(p => data.favorites.includes(relKey(p)));
+  paths.forEach(p => {
+    const key = relKey(p);
+    const idx = data.favorites.indexOf(key);
+    if (allFav) { if (idx >= 0) data.favorites.splice(idx, 1); }
+    else { if (idx < 0) data.favorites.push(key); }
+  });
+  saveData(); renderDetail(); renderGrid(); updateSmartCounts();
+}
+
+// 선택된 여러 파일을 한 번에 휴지통으로 이동
+async function trashImagesAt(paths) {
+  if (!confirm(`선택한 ${paths.length}개 파일을 휴지통으로 이동할까요?`)) return;
+  let failCount = 0;
+  for (const absPath of paths) {
+    const r = await ipcRenderer.invoke('trash-file', absPath);
+    if (r.success) {
+      const key = relKey(absPath);
+      delete data.tags[key]; delete data.notes[key];
+      data.favorites = (data.favorites || []).filter(x => x !== key);
+      selectedPaths.delete(absPath);
+    } else failCount++;
+  }
+  saveData();
+  selectedPath = null;
+  await refreshTreeAndImages();
+  renderDetail();
+  if (failCount) alert(failCount + '개 파일은 삭제하지 못했습니다.');
+}
+
+let saveTimer = null;
+function saveData() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { ipcRenderer.invoke('save-data', { root, data }); }, 300);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+init();
+</script>
+</body>
+</html>
