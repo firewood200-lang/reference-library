@@ -59,6 +59,11 @@ const DEFAULT_GRID_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.
 // OBJ 배치 뷰어(곡선 그리드 + 3D 모델 배치) 앱 - 위 그리드 앱과 같은 방식(소스 폴더를 이 앱의
 // electron 런타임으로 직접 실행). 2026-07-17: 레퍼런스 라이브러리에서 .obj를 우클릭으로 바로 열 수 있게 추가.
 const DEFAULT_OBJPLACER_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\curvilinear-obj-placer';
+// ComfyUI(로컬 이미지 생성 워크플로우) - 서버 상태(꺼져 있으면 켜기)까지 확인해서 버튼 하나로 여는 용도.
+// 2026-07-23: ControlNet+SDXL 워크플로우(sdxl_simple_example)를 레퍼런스 라이브러리에서 바로 열기 위해 추가.
+const COMFYUI_DIR = 'D:\\AI-Workflow\\ComfyUI';
+const COMFYUI_BAT = path.join(COMFYUI_DIR, 'ComfyUI실행.bat');
+const COMFYUI_URL = 'http://127.0.0.1:8188';
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2112,6 +2117,71 @@ ipcMain.handle('open-mini-window', async (_e, url) => {
     // --window-size/position은 크롬이 이미 켜져 있거나 같은 사이트를 예전에 연 적이 있으면 무시되므로,
     // 새로 생긴 창을 찾아 Win32 SetWindowPos로 크기/위치를 다시 한번 강제로 맞춘다(다크 타이틀바와 함께 처리).
     positionNewMiniWindow(beforeHandles, x, y, w, h); // 결과를 기다리지 않는다 - 실패해도 미니 창은 이미 정상적으로 열려 있다
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ComfyUI 워크플로우 버튼 - 2026-07-23 추가
+// 서버(127.0.0.1:8188)가 켜져 있는지 먼저 확인하고, 꺼져 있으면 ComfyUI실행.bat으로 켠 뒤 준비될 때까지
+// 기다렸다가, 미니창과 같은 방식(크롬 앱모드 창)으로 열어준다. 그래프 작업 공간이라 미니창보다 크게 띄운다.
+function checkComfyUIAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(COMFYUI_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function waitForComfyUI(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkComfyUIAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+ipcMain.handle('open-comfyui', async () => {
+  try {
+    const alreadyRunning = await checkComfyUIAlive();
+    if (!alreadyRunning) {
+      if (!fs.existsSync(COMFYUI_BAT)) {
+        return { success: false, error: 'ComfyUI 실행 파일을 찾을 수 없습니다: ' + COMFYUI_BAT };
+      }
+      const serverProc = spawn('cmd.exe', ['/c', COMFYUI_BAT], {
+        cwd: COMFYUI_DIR, detached: true, stdio: 'ignore'
+      });
+      serverProc.unref();
+      const ready = await waitForComfyUI(60000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 60초 대기
+      if (!ready) {
+        return { success: false, error: 'ComfyUI 서버가 60초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+      }
+    }
+    const exePath = await resolveExePath('chromeExe', DEFAULT_CHROME_EXE, '크롬 실행 파일(chrome.exe)을 선택하세요');
+    if (!exePath) return { success: false, error: '크롬 실행 파일 위치를 찾지 못함' };
+    const w = 1600, h = 960;
+    const mb = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
+    const cx = mb ? mb.x + mb.width / 2 : null;
+    const cy = mb ? mb.y + mb.height / 2 : null;
+    const display = mb ? screen.getDisplayNearestPoint({ x: Math.round(cx), y: Math.round(cy) }) : screen.getPrimaryDisplay();
+    const work = display.workArea;
+    let x = mb ? Math.round(cx - w / 2) : Math.round(work.x + (work.width - w) / 2);
+    let y = mb ? Math.round(cy - h / 2) : Math.round(work.y + (work.height - h) / 2);
+    x = Math.max(work.x, Math.min(x, work.x + work.width - w));
+    y = Math.max(work.y, Math.min(y, work.y + work.height - h));
+    const beforeHandles = await listChromeWindowHandles();
+    const child = spawn(exePath, [
+      `--app=${COMFYUI_URL}`,
+      `--window-size=${w},${h}`,
+      `--window-position=${x},${y}`,
+      '--force-dark-mode',
+      '--enable-features=WebContentsForceDark'
+    ], { detached: true, stdio: 'ignore' });
+    child.unref();
+    positionNewMiniWindow(beforeHandles, x, y, w, h);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

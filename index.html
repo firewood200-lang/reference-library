@@ -315,6 +315,7 @@
             <span class="dd-dot"></span><span class="dd-label">예스24 항상위</span>
           </button>
           <button class="ql-btn" id="btnQlPureref">PureRef</button>
+          <button class="ql-btn" id="btnQlComfyUI" title="ComfyUI 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다 (최대 1분 정도 걸릴 수 있음)">ComfyUI 워크플로우</button>
         </div>
         <!-- 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 탭/주소창 없는 작은 창으로 열 수 있다 -
              임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
@@ -478,6 +479,18 @@ document.getElementById('btnQlClock').addEventListener('click', async () => {
 document.getElementById('btnQlStickyNotes').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('open-sticky-notes');
   if (!r.success) alert('포스트잇 앱 실행 실패: ' + r.error);
+});
+// ComfyUI: 서버가 꺼져 있으면 켜는 데 시간이 걸릴 수 있어서, 기다리는 동안 버튼 글자를 바꿔 진행 상황을 보여준다.
+document.getElementById('btnQlComfyUI').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 여는 중...';
+  try {
+    const r = await ipcRenderer.invoke('open-comfyui');
+    if (!r.success) alert('ComfyUI 열기 실패: ' + r.error);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
 });
 // 코드저장/코드받기: git push/pull을 버튼으로 대신한다(PowerShell 창을 직접 열지 않아도 되게).
 // 실행 중 중복 클릭을 막고 무슨 상태인지 보이도록 버튼 글자를 잠깐 바꿔둔다.
