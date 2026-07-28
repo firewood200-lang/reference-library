@@ -19,4 +19,8 @@ contextBridge.exposeInMainWorld('ttsAPI', {
   nativeResume: () => ipcRenderer.invoke('tts-native-resume'),
   nativeStop: () => ipcRenderer.invoke('tts-native-stop'),
   onNativeStatus: (cb) => ipcRenderer.on('tts-native-status', (_e, status) => cb(status)),
+  // 2026-07-28: "읽기 모드" 창에 편집 기능 추가 - 미리보기(readDocText)는 큰 파일이면 앞부분만
+  // 잘라서 보여주므로, 편집할 때는 반드시 전체 내용을 다시 읽어오는 read-text-full을 쓴다.
+  readTextFull: (filePath) => ipcRenderer.invoke('read-text-full', filePath),
+  writeTextFile: (payload) => ipcRenderer.invoke('write-text-file', payload),
 });

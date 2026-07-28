@@ -765,19 +765,34 @@ ipcMain.handle('open-text-window', (e, filePath) => {
   try {
     const { content, truncated } = readDocText(filePath);
     const title = path.basename(filePath);
+    // docx는 바이너리 포맷을 텍스트로 다시 써넣으면 파일이 깨지므로(main.js의 write-text-file과
+    // 동일한 기준) 편집 버튼 자체를 txt/md에서만 보여준다.
+    const ext = path.extname(filePath).toLowerCase();
+    const editable = ext === '.txt' || ext === '.md';
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       body{margin:0;background:#1b1b1b;color:#e8e8e8;font-family:"Malgun Gothic",system-ui,sans-serif;line-height:1.7;}
       .wrap{max-width:760px;margin:0 auto;padding:28px 24px 60px;}
-      h1{font-size:18px;color:#bbb;margin:0 0 16px;word-break:break-all;}
+      .docHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 16px;}
+      h1{font-size:18px;color:#bbb;margin:0;word-break:break-all;}
+      .docEditBtn{background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;font-family:inherit;flex-shrink:0;}
+      .docEditBtn:hover{background:#3a3a3a;}
       pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:14.5px;color:#ddd;margin:0;}
+      #docEditor{display:none;width:100%;box-sizing:border-box;min-height:420px;background:#141414;color:#eee;border:1px solid #3a3a3a;border-radius:8px;padding:14px;font-family:inherit;font-size:14.5px;line-height:1.7;resize:vertical;}
+      #docEditBar{display:none;align-items:center;gap:10px;margin-top:10px;}
+      #docEditBar button{background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px;font-family:inherit;}
+      #docEditBar button:hover{background:#3a3a3a;}
+      #docSaveBtn{background:#2a5a2a;border-color:#4a8a4a;}
+      #docSaveBtn:hover{background:#316831;}
+      #docEditStatus{font-size:12px;color:#999;}
       .notice{color:#e0a050;font-size:12px;margin-top:16px;}
       ${ttsCss()}
       </style></head><body><div class="wrap">
-      <h1>${escapeHtmlMain(title)}</h1>
+      <div class="docHeader"><h1>${escapeHtmlMain(title)}</h1>${editable ? '<button id="docEditBtn" class="docEditBtn" title="이 문서를 직접 수정합니다">✏ 편집</button>' : ''}</div>
       ${ttsBarHtml()}
-      <pre>${escapeHtmlMain(content)}</pre>
-      ${truncated ? '<div class="notice">파일이 너무 커서 앞부분만 표시했습니다.</div>' : ''}
-      </div>${ttsScript(content)}</body></html>`;
+      <pre id="docPre">${escapeHtmlMain(content)}</pre>
+      ${editable ? '<textarea id="docEditor" spellcheck="false"></textarea><div id="docEditBar"><button id="docSaveBtn">저장</button><button id="docCancelBtn">취소</button><span id="docEditStatus"></span></div>' : ''}
+      ${truncated ? '<div class="notice">파일이 너무 커서 앞부분만 표시했습니다. (편집 시에는 전체 내용을 불러옵니다)</div>' : ''}
+      </div>${ttsScript(content)}${editable ? docEditScript(filePath) : ''}</body></html>`;
     const win = new BrowserWindow({
       width: 760, height: 880, title,
       ...(centeredPosOnMain(760, 880) || {}),
@@ -1197,6 +1212,13 @@ function ttsScript(text) {
       // preEl이 null이 되어 아래에서 자동으로 건너뛰고, 버튼바 밑 한 줄짜리 스니펫(ttsSnippet)만 쓴다.
       var preEl = document.querySelector('pre');
       var preOriginalHtml = preEl ? preEl.innerHTML : null;
+      // 2026-07-28: 편집 모드(아래 별도 스크립트)가 저장에 성공하면 이 함수로 방금 저장한 내용을
+      // 알려준다 - fullText(TTS가 읽는 대상)와 pre 원본(하이라이트 초기화 기준)을 새 내용으로 갱신해서,
+      // 창을 새로 열지 않고도 그 자리에서 바로 수정된 내용을 읽을 수 있게 한다.
+      window.__ttsSetText = function(t){
+        fullText = t;
+        if (preEl) { preEl.textContent = t; preOriginalHtml = preEl.innerHTML; }
+      };
       var saved = {}; // ttsAPI(설정 저장 통로)가 없는 예전 창/오류 상황에서도 안전하게 동작하도록 빈 값으로 시작
       var hasNativeApi = !!(window.ttsAPI && window.ttsAPI.nativeSpeak);
 
@@ -1391,6 +1413,78 @@ function ttsScript(text) {
         });
         window.addEventListener('beforeunload', function(){ window.ttsAPI.nativeStop(); });
       }
+    })();<\/script>`;
+}
+
+// 2026-07-28: "읽기 모드" 창에 편집 기능 추가 - txt/md 문서를 다른 프로그램으로 안 옮기고 이 창에서
+// 바로 고칠 수 있게 한다. open-text-window에서 ext가 txt/md일 때만(editable) 이 스크립트를 붙인다.
+// 미리보기(readDocText)는 큰 파일이면 앞부분만 잘라서 보여주므로, 편집 시작 시점에는 항상
+// read-text-full로 전체 내용을 다시 받아온다 - 그래야 저장할 때 뒷부분이 잘려나가지 않는다.
+function docEditScript(filePath) {
+  const safePath = JSON.stringify(filePath);
+  return `<script>(function(){
+      var filePath = ${safePath};
+      var editBtn = document.getElementById('docEditBtn');
+      if (!editBtn) return;
+      var preEl = document.getElementById('docPre');
+      var editor = document.getElementById('docEditor');
+      var editBar = document.getElementById('docEditBar');
+      var saveBtn = document.getElementById('docSaveBtn');
+      var cancelBtn = document.getElementById('docCancelBtn');
+      var statusEl = document.getElementById('docEditStatus');
+      var ttsBar = document.querySelector('.ttsBar');
+      var ttsSnippet = document.querySelector('.ttsSnippet');
+      var ttsSettings = document.getElementById('ttsSettings');
+      var editing = false;
+
+      function enterEdit(content){
+        editor.value = content;
+        preEl.style.display = 'none';
+        editor.style.display = 'block';
+        editBar.style.display = 'flex';
+        editBtn.style.display = 'none';
+        if (ttsBar) ttsBar.style.display = 'none';
+        if (ttsSnippet) ttsSnippet.style.display = 'none';
+        if (ttsSettings) ttsSettings.classList.remove('show');
+        editing = true;
+        editor.focus();
+      }
+      function exitEdit(){
+        preEl.style.display = '';
+        editor.style.display = 'none';
+        editBar.style.display = 'none';
+        editBtn.style.display = '';
+        if (ttsBar) ttsBar.style.display = '';
+        if (ttsSnippet) ttsSnippet.style.display = '';
+        editing = false;
+        statusEl.textContent = '';
+      }
+
+      editBtn.addEventListener('click', function(){
+        // 편집하는 동안 TTS가 옛 내용을 계속 읽고 있으면 혼란스러우니 먼저 멈춘다.
+        window.ttsAPI.nativeStop().catch(function(){});
+        editBtn.disabled = true;
+        window.ttsAPI.readTextFull(filePath).then(function(res){
+          editBtn.disabled = false;
+          if (!res || !res.success) { alert('불러오기 실패: ' + ((res && res.error) || '알 수 없는 오류')); return; }
+          enterEdit(res.content);
+        });
+      });
+      cancelBtn.addEventListener('click', exitEdit);
+      saveBtn.addEventListener('click', function(){
+        saveBtn.disabled = true;
+        statusEl.textContent = '저장 중...';
+        window.ttsAPI.writeTextFile({ filePath: filePath, content: editor.value }).then(function(res){
+          saveBtn.disabled = false;
+          if (!res || !res.success) { statusEl.textContent = '저장 실패: ' + ((res && res.error) || '알 수 없는 오류'); return; }
+          if (window.__ttsSetText) window.__ttsSetText(editor.value);
+          exitEdit();
+        });
+      });
+      // 저장하지 않고 창을 닫으면 수정 내용을 잃으니, 편집 중일 때만 확인을 한 번 받는다.
+      window.addEventListener('beforeunload', function(e){
+        if (editing) { e.preventDefault(); e.returnValue = ''; }
+      });
     })();<\/script>`;
 }
 
