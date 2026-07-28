@@ -523,8 +523,9 @@ document.getElementById('btnGitPull').addEventListener('click', async (ev) => {
 function formatGitAllResults(results) {
   return results.map(r => `${r.success ? '✅' : '❌'} ${r.name}: ${r.message}`).join('\n');
 }
-document.getElementById('btnGitSaveAll').addEventListener('click', async (ev) => {
-  const btn = ev.currentTarget;
+// 전체 코드저장 실행 (버튼 클릭 / 창 닫기 확인창 둘 다에서 재사용)
+async function runGitSaveAll() {
+  const btn = document.getElementById('btnGitSaveAll');
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ 전체 저장 중...';
   try {
@@ -533,9 +534,11 @@ document.getElementById('btnGitSaveAll').addEventListener('click', async (ev) =>
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
-});
-document.getElementById('btnGitPullAll').addEventListener('click', async (ev) => {
-  const btn = ev.currentTarget;
+}
+document.getElementById('btnGitSaveAll').addEventListener('click', runGitSaveAll);
+// 전체 코드받기 실행 (버튼 클릭 / 앱 시작 시 확인창 둘 다에서 재사용)
+async function runGitPullAll() {
+  const btn = document.getElementById('btnGitPullAll');
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ 전체 받는 중...';
   try {
@@ -544,7 +547,8 @@ document.getElementById('btnGitPullAll').addEventListener('click', async (ev) =>
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
-});
+}
+document.getElementById('btnGitPullAll').addEventListener('click', runGitPullAll);
 document.getElementById('btnQlUpscayl').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('open-upscayl');
   if (!r.success) alert('업스케일 실행 실패: ' + r.error);
@@ -1020,6 +1024,11 @@ async function ensureObjThumbnail(absPath) {
 }
 
 async function init() {
+  // 창을 열자마자 바로 물어본다 (2026-07-28) - 깜빡하고 그냥 넘어가는 경우가 많아서, 라이브러리가
+  // 뜨기 전에 최우선으로 확인창부터 띄운다.
+  if (confirm('전체 코드 받기 하시겠습니까?\n\n8개 앱(레퍼런스 라이브러리·크로키·그리드·OBJ 배치·SetPose·시계·포스트잇·3D 뷰어)의 최신 코드를 GitHub에서 받아옵니다.')) {
+    await runGitPullAll();
+  }
   initThumbSize();
   initResizers();
   const cfg = await ipcRenderer.invoke('get-config');
@@ -1095,6 +1104,15 @@ document.getElementById('titlebarTitle').parentElement.ondblclick = (e) => {
 };
 ipcRenderer.on('window:maximize-changed', (e, maximized) => {
   btnWinMax.title = maximized ? '이전 크기로' : '최대화';
+});
+// 닫기 버튼이든 Alt+F4든, 메인 프로세스가 실제로 닫기 직전에 이 이벤트를 보내준다 (main.js의
+// mainWindow.on('close', ...) 참고). 여기서 확인창을 띄우고, 저장하든 안 하든 끝나면
+// window:confirm-close로 "이제 닫아도 됨"을 알려준다.
+ipcRenderer.on('window:request-close', async () => {
+  if (confirm('전체 코드 저장 하시겠습니까?\n\n8개 앱(레퍼런스 라이브러리·크로키·그리드·OBJ 배치·SetPose·시계·포스트잇·3D 뷰어)의 변경사항을 GitHub에 저장합니다.')) {
+    await runGitSaveAll();
+  }
+  ipcRenderer.invoke('window:confirm-close');
 });
 
 document.getElementById('btnSelectRoot').onclick = async () => {

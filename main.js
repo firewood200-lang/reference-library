@@ -8,6 +8,7 @@ const os = require('os');
 const zlib = require('zlib'); // docx(zip) 안의 문서 XML 압축을 풀 때 씀 - 별도 라이브러리 설치 없이 내장 모듈만으로 처리
 
 let mainWindow;
+let closeConfirmed = false; // 닫기 전 "전체 코드저장" 확인이 끝나서 실제로 닫아도 되는 상태인지
 // 파일 종류별 확장자 - 이미지/3D모델/문서를 모두 라이브러리에 표시
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 const MODEL_EXTS = ['.obj'];
@@ -111,7 +112,21 @@ function createWindow() {
   // 최대화/복원 시 커스텀 타이틀바의 □/⧉ 아이콘을 맞춰 바꿔주기 위해 렌더러에 상태를 알려준다
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximize-changed', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximize-changed', false));
+
+  // 닫기 직전에 "전체 코드저장 하시겠습니까?" 확인창을 띄우기 위해, 실제 닫기를 한 번 막고 렌더러에
+  // 알려준다. 렌더러가 confirm()을 띄운 뒤 (저장하든 안 하든) window:confirm-close를 호출해주면
+  // 그때 closeConfirmed를 켜고 다시 닫는다 - 커스텀 타이틀바의 닫기 버튼과 Alt+F4 둘 다 이 close
+  // 이벤트를 거치므로 한 곳에서 처리된다.
+  mainWindow.on('close', (e) => {
+    if (closeConfirmed) return;
+    e.preventDefault();
+    mainWindow.webContents.send('window:request-close');
+  });
 }
+ipcMain.handle('window:confirm-close', () => {
+  closeConfirmed = true;
+  mainWindow?.close();
+});
 
 // 요청을 보낸 창(e.sender)을 기준으로 동작해서, 메인 창뿐 아니라 웹 임베드 팝업 등 커스텀 타이틀바를 쓰는
 // 어떤 창에서도 같은 채널을 그대로 재사용할 수 있게 했다.
