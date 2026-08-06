@@ -65,6 +65,10 @@ const DEFAULT_OBJPLACER_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon stu
 const COMFYUI_DIR = 'D:\\AI-Workflow\\ComfyUI';
 const COMFYUI_BAT = path.join(COMFYUI_DIR, 'ComfyUI실행.bat');
 const COMFYUI_URL = 'http://127.0.0.1:8188';
+// 펜터치 로컬 앱 - 포스트잇/그리드와 같은 방식(소스 폴더를 이 앱의 electron 런타임으로 직접 실행).
+// ComfyUI 원본 노드 그래프(위 버튼)를 그대로 여는 대신, LoRA+ControlNet 워크플로우 전용 UI로
+// 감싼 별도 앱. 2026-08-06 추가.
+const DEFAULT_PENTOUCH_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch';
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2373,6 +2377,39 @@ async function resolveStickyNotesDir() {
 ipcMain.handle('open-sticky-notes', async () => {
   const dir = await resolveStickyNotesDir();
   if (!dir) return { success: false, error: '포스트잇 앱 위치를 찾지 못함' };
+  try {
+    const child = spawn(process.execPath, [dir], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 펜터치 로컬 앱: 포스트잇과 같은 방식(소스 폴더를 이 앱의 electron 런타임으로 직접 실행)
+async function resolvePentouchDir() {
+  const cfg = getConfig();
+  if (cfg.pentouchDir && fs.existsSync(path.join(cfg.pentouchDir, 'package.json'))) return cfg.pentouchDir;
+  if (fs.existsSync(path.join(DEFAULT_PENTOUCH_DIR, 'package.json'))) {
+    setConfig({ ...cfg, pentouchDir: DEFAULT_PENTOUCH_DIR });
+    return DEFAULT_PENTOUCH_DIR;
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '펜터치 앱 폴더를 선택하세요 (package.json이 있는 폴더)',
+    properties: ['openDirectory']
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const dir = result.filePaths[0];
+  if (!fs.existsSync(path.join(dir, 'package.json'))) {
+    dialog.showErrorBox('펜터치 앱을 찾을 수 없음', '선택한 폴더에 package.json이 없습니다.');
+    return null;
+  }
+  setConfig({ ...cfg, pentouchDir: dir });
+  return dir;
+}
+ipcMain.handle('open-pentouch', async () => {
+  const dir = await resolvePentouchDir();
+  if (!dir) return { success: false, error: '펜터치 앱 위치를 찾지 못함' };
   try {
     const child = spawn(process.execPath, [dir], { detached: true, stdio: 'ignore' });
     child.unref();

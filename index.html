@@ -316,6 +316,7 @@
           </button>
           <button class="ql-btn" id="btnQlPureref">PureRef</button>
           <button class="ql-btn" id="btnQlComfyUI" title="ComfyUI 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다 (최대 1분 정도 걸릴 수 있음)">ComfyUI 워크플로우</button>
+          <button class="ql-btn ql-main" id="btnQlPentouch" title="펜터치 전용 앱 - LoRA(mypenink)+ControlNet(MistoLine) 워크플로우를 컷번호/저장폴더/세부 스탯까지 직접 조절할 수 있는 화면으로 엽니다">펜터치</button>
         </div>
         <!-- 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 탭/주소창 없는 작은 창으로 열 수 있다 -
              임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
@@ -488,6 +489,17 @@ document.getElementById('btnQlComfyUI').addEventListener('click', async (ev) => 
   try {
     const r = await ipcRenderer.invoke('open-comfyui');
     if (!r.success) alert('ComfyUI 열기 실패: ' + r.error);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+document.getElementById('btnQlPentouch').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 여는 중...';
+  try {
+    const r = await ipcRenderer.invoke('open-pentouch');
+    if (!r.success) alert('펜터치 앱 열기 실패: ' + r.error);
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
