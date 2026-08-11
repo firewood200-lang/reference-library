@@ -69,6 +69,11 @@ const COMFYUI_URL = 'http://127.0.0.1:8188';
 // ComfyUI 원본 노드 그래프(위 버튼)를 그대로 여는 대신, LoRA+ControlNet 워크플로우 전용 UI로
 // 감싼 별도 앱. 2026-08-06 추가.
 const DEFAULT_PENTOUCH_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch';
+// 펜터치 웹 서버(폰에서 Tailscale로 접속하는 원격용) - ComfyUI나 펜터치 앱을 켤 때 같이 켜 두면
+// 따로 챙기지 않아도 폰에서 바로 쓸 수 있다. 2026-08-11 추가.
+const PENTOUCH_WEB_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch-web';
+const PENTOUCH_WEB_BAT = path.join(PENTOUCH_WEB_DIR, '펜터치웹서버실행.bat');
+const PENTOUCH_WEB_URL = 'http://127.0.0.1:8189';
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2257,8 +2262,35 @@ async function waitForComfyUI(maxWaitMs) {
   }
   return false;
 }
+// 펜터치 웹 서버 - 꺼져 있으면 켜기만 하고 뜰 때까지 기다리지 않는다(폰 원격용 부가 서비스라
+// ComfyUI/펜터치 앱을 여는 주된 동작을 이것 때문에 지연시키거나 실패시키지 않으려는 의도).
+// 이미 켜져 있으면 중복으로 새 서버 프로세스를 띄우지 않도록 먼저 살아있는지 확인한다.
+function checkPentouchWebAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(PENTOUCH_WEB_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function ensurePentouchWebServer() {
+  try {
+    const alreadyRunning = await checkPentouchWebAlive();
+    if (alreadyRunning) return;
+    if (!fs.existsSync(PENTOUCH_WEB_BAT)) return; // 조용히 무시 - 부가 서비스라 없어도 메인 동작을 막지 않는다
+    const serverProc = spawn('cmd.exe', ['/c', PENTOUCH_WEB_BAT], {
+      cwd: PENTOUCH_WEB_DIR, detached: true, stdio: 'ignore'
+    });
+    serverProc.unref();
+  } catch (err) {
+    // 부가 서비스이므로 실패해도 호출한 쪽(ComfyUI/펜터치 앱 열기)에는 영향을 주지 않는다
+  }
+}
 ipcMain.handle('open-comfyui', async () => {
   try {
+    ensurePentouchWebServer(); // 기다리지 않고 백그라운드로 같이 켠다
     const alreadyRunning = await checkComfyUIAlive();
     if (!alreadyRunning) {
       if (!fs.existsSync(COMFYUI_BAT)) {
@@ -2411,6 +2443,7 @@ ipcMain.handle('open-pentouch', async () => {
   const dir = await resolvePentouchDir();
   if (!dir) return { success: false, error: '펜터치 앱 위치를 찾지 못함' };
   try {
+    ensurePentouchWebServer(); // 기다리지 않고 백그라운드로 같이 켠다
     const child = spawn(process.execPath, [dir], { detached: true, stdio: 'ignore' });
     child.unref();
     return { success: true };
