@@ -2346,6 +2346,16 @@ function iconForKind(kind) {
   return '🗎';
 }
 
+// 2026-08-14: 상세 패널의 "크기: X KB"가 KB 고정이라 영상처럼 큰 파일은 숫자가 너무 커져서
+// 읽기 불편했다 - 단위를 자동으로 KB/MB/GB로 올려준다. 파일 정보(유형·용량) 표시에 공용으로 사용.
+function formatBytes(bytes) {
+  if (bytes == null) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
 // 더블클릭 -> 종류에 맞는 앱으로 전달 (이미지: 크로키, 3D: obj 뷰어, 문서: OS 기본 프로그램, 웹 임베드: 재생 창)
 async function openItem(absPath, kind) {
   if (kind === 'model') {
@@ -2419,7 +2429,13 @@ function renderDetail() {
   const isFav = (data.favorites || []).includes(key);
   const imgInfo = allImagesCache.find(i => i.path === selectedPath) || {};
   const kind = imgInfo.kind || 'image';
-  const sizeKb = imgInfo.size ? (imgInfo.size / 1024).toFixed(1) + ' KB' : '';
+  // 2026-08-14: 사용자 요청 - 이미지 선택 시 기본 정보(파일 유형, 용량, 크기)를 보여준다.
+  // 확장자는 파일명에서 그대로 뽑아 대문자로(.png -> PNG), 용량은 KB 고정이던 걸 formatBytes로
+  // 단위 자동 조정(영상 등 큰 파일도 MB/GB로 읽기 편하게). 픽셀 크기(가로x세로)는 image/video만
+  // 해당 엘리먼트가 로드된 뒤에나 알 수 있어서, 아래에서 로드 완료 시점에 dimRow를 다시 채운다.
+  const fileExt = (path.extname(selectedPath).replace('.', '') || '?').toUpperCase();
+  const sizeHuman = formatBytes(imgInfo.size);
+  const baseInfoText = `유형: ${fileExt} · 용량: ${sizeHuman}`;
   // txt/md/docx는 문서(doc)이지만 앱 안에서 바로 텍스트를 읽을 수 있다 - pdf는 지원하지 않아 기존처럼 아이콘만 보여준다
   const isTextDoc = kind === 'doc' && ['.txt', '.md', '.docx'].includes(path.extname(selectedPath).toLowerCase());
   // docx는 바이너리라 편집 시 파일이 깨지므로 txt/md만 편집 가능
@@ -2444,7 +2460,7 @@ function renderDetail() {
   detail.innerHTML = `
     ${previewHtml}
     <div class="row"><b>${escapeHtml(path.basename(selectedPath))}</b></div>
-    <div class="row" id="dimRow">크기: ${sizeKb}</div>
+    <div class="row" id="dimRow">${baseInfoText}</div>
     <div class="row">경로: ${escapeHtml(selectedPath)}</div>
     <label>태그</label>
     <div id="tagList"></div>
@@ -2470,8 +2486,18 @@ function renderDetail() {
   if (kind === 'image') {
     const dimImg = document.getElementById('detailImg');
     dimImg.onload = () => {
-      document.getElementById('dimRow').textContent = `크기: ${sizeKb} · ${dimImg.naturalWidth}×${dimImg.naturalHeight}`;
+      const dr = document.getElementById('dimRow');
+      if (dr) dr.textContent = `${baseInfoText} · ${dimImg.naturalWidth}×${dimImg.naturalHeight}`;
     };
+  }
+
+  // 2026-08-14: 영상도 이미지처럼 픽셀 크기를 보여준다 - loadedmetadata 시점에 videoWidth/Height 사용 가능.
+  if (kind === 'video') {
+    const dimVideo = document.getElementById('detailVideo');
+    dimVideo.addEventListener('loadedmetadata', () => {
+      const dr = document.getElementById('dimRow');
+      if (dr) dr.textContent = `${baseInfoText} · ${dimVideo.videoWidth}×${dimVideo.videoHeight}`;
+    });
   }
 
   if (kind === 'model') {
