@@ -1963,15 +1963,20 @@ function renderGrid() {
     div.dataset.kind = kind;
     if (imgData.embedUrl) div.dataset.embedUrl = imgData.embedUrl;
     if (imgData.linkImage) div.dataset.linkImage = imgData.linkImage;
+    // 2026-08-14: 그리드 캡션을 파일명(해시값이라 알아보기 어려움)에서 용량으로 바꾸면서, 파일명 자체가
+    // 아예 안 보이게 되는 건 아니고 카드에 마우스를 올리면 툴팁으로 뜨게 남겨둔다.
+    div.title = imgData.name || '';
     const isFav = (data.favorites || []).includes(relKey(imgData.path));
     if (kind === 'image') {
-      div.innerHTML = '<img draggable="true"><div class="fname">' + escapeHtml(imgData.name) + '</div>' + (isFav ? '<div class="fav-badge">★</div>' : '');
+      div.innerHTML = '<img draggable="true"><div class="fname">' + escapeHtml(formatBytes(imgData.size)) + '</div>' + (isFav ? '<div class="fav-badge">★</div>' : '');
     } else {
-      // 웹 임베드/링크/미니창 항목은 실제 파일명(.pinembed/.weblink/.miniwin) 대신 저장할 때 붙인 제목을 보여준다
+      // 웹 임베드/링크/미니창 항목은 실제 파일명(.pinembed/.weblink/.miniwin) 대신 저장할 때 붙인 제목을 보여준다.
+      // 그 외(문서/영상/3D 모델 등 제목이 따로 없는 실제 파일)는 이미지와 마찬가지로 파일명 대신 용량을 보여준다 -
+      // 사용자가 그리드에서 가장 중요하게 보는 정보는 파일명보다 용량이라고 밝혀서(2026-08-14).
       const label = (kind === 'embed' && imgData.embedTitle) ? imgData.embedTitle
         : (kind === 'link' && imgData.linkTitle) ? imgData.linkTitle
         : (kind === 'miniwin' && imgData.miniwinTitle) ? imgData.miniwinTitle
-        : imgData.name;
+        : formatBytes(imgData.size);
       // 기사/링크, 텍스트 파일 카드는 제목 아래에 요약(발췌)까지 보여줘서 그리드만 보고도 무슨 내용인지 알 수 있게 한다
       const excerptHtml = (kind === 'link' && imgData.linkExcerpt) ? '<div class="fexcerpt">' + escapeHtml(imgData.linkExcerpt) + '</div>'
         : (kind === 'doc' && imgData.textExcerpt) ? '<div class="fexcerpt">' + escapeHtml(imgData.textExcerpt) + '</div>'
