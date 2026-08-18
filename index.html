@@ -168,6 +168,8 @@
      기본값(360px)은 기존과 동일해서 위 스크롤 문제는 그대로 방지된다. */
   .detail-media-wrap { width:100%; height:var(--detail-media-h); margin-bottom:0; position:relative; }
   .detail-media-wrap img, .detail-media-wrap video { width:100%; height:100%; object-fit:contain; border-radius:var(--radius-md) var(--radius-md) 0 0; background:var(--bg-0); box-shadow:var(--shadow-sm); display:block; }
+  /* 2026-08-18: 클릭하면 라이트박스로 크게 볼 수 있다는 것을 커서로 암시(video는 자체 컨트롤이 있어 제외) */
+  .detail-media-wrap img { cursor:zoom-in; }
   .detail-media-wrap video { background:#000; }
   /* .detail-media-wrap로 감싸지 않은 예전 방식의 img(있다면 대비용 fallback)는 기존처럼 360px 제한 */
   #detailScroll > img { width:100%; max-height:360px; object-fit:contain; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-0); box-shadow:var(--shadow-sm); }
@@ -229,6 +231,11 @@
   .modal-actions { display:flex; justify-content:flex-end; gap:8px; }
   .modal-actions button { background:var(--bg-3); color:var(--text-0); border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 14px; cursor:pointer; transition:background .12s ease; }
   .modal-actions button:hover { background:var(--bg-4); }
+  /* 2026-08-18: 상세 패널 미리보기 클릭 시 뜨는 라이트박스 - 패널 폭(최대 900px로 넓혀도 결국
+     한계가 있는 우측 패널)과 무관하게 화면 대부분을 채워 원본 비율 그대로 크게 보여준다. */
+  #lightboxOverlay { position:fixed; inset:0; background:rgba(8,8,10,.9); display:none; align-items:center; justify-content:center; z-index:500; cursor:zoom-out; }
+  #lightboxOverlay.show { display:flex; }
+  #lightboxOverlay img { max-width:94vw; max-height:94vh; object-fit:contain; border-radius:var(--radius-md); box-shadow:var(--shadow-md); }
   /* 미니창 항목 추가 모달의 썸네일 미리보기 - 파일 선택/붙여넣기로 채워지기 전엔 안내 문구만 보인다 */
   #miniwinThumbBox { display:flex; align-items:center; justify-content:center; height:120px; border:1px dashed var(--border); border-radius:var(--radius-sm); background:var(--bg-0); overflow:hidden; }
   #miniwinThumbBox img { max-width:100%; max-height:100%; object-fit:contain; }
@@ -377,6 +384,14 @@
       <button id="miniwinSaveBtn">저장</button>
     </div>
   </div>
+</div>
+
+<!-- 2026-08-18: 상세 패널 미리보기 이미지를 클릭하면 화면 대부분을 채워서 원본 비율대로 크게 보여주는
+     라이트박스. 패널 폭을 드래그로 늘리는 방식(위 resizerRight)은 발견하기 어렵고 화면 크기에 따라
+     한계가 있어서, "정보(그림)가 있는데 볼 수가 없다"는 반복된 피드백에 대한 직접적인 해결책으로 추가.
+     클릭 또는 Esc로 닫힘. -->
+<div id="lightboxOverlay">
+  <img id="lightboxImg" src="">
 </div>
 
 <!-- AI 인덱싱 진행 상태를 눈에 보이게 보여주는 오버레이(신규, 평소엔 숨김) -->
@@ -1056,6 +1071,7 @@ async function init() {
   }
   initThumbSize();
   initResizers();
+  initLightbox();
   const cfg = await ipcRenderer.invoke('get-config');
   if (cfg && cfg.lastRoot) {
     root = cfg.lastRoot;
@@ -1118,6 +1134,28 @@ function initResizers() {
   // 2026-08-18: 우측 상세 패널은 기존 최대 600px로는 가로로 긴 원본(레퍼런스 시트 등)을 봐도
   // 여전히 작아서 "정보를 전혀 파악할 수 없다"는 피드백 - 최대치를 900px로 넓힘.
   makeDraggable(document.getElementById('resizerRight'), '--detail-w', 'reflib_detailW', document.getElementById('detail'), true, 900);
+}
+
+// 2026-08-18: 상세 패널 미리보기 이미지 클릭 -> 라이트박스로 화면 대부분 채워서 크게 보기.
+// renderDetail()이 선택마다 #detailScroll을 통째로 다시 그려서 그 안 img는 계속 새로 생기므로,
+// 리스너를 매번 새로 붙이는 대신 바뀌지 않는 #detail에 이벤트 위임(delegation)으로 한 번만 건다.
+function initLightbox() {
+  const overlay = document.getElementById('lightboxOverlay');
+  const lightboxImg = document.getElementById('lightboxImg');
+  document.getElementById('detail').addEventListener('click', (e) => {
+    const img = e.target.closest('.detail-media-wrap img');
+    if (!img) return;
+    lightboxImg.src = img.src;
+    overlay.classList.add('show');
+  });
+  function close() {
+    overlay.classList.remove('show');
+    lightboxImg.src = '';
+  }
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('show')) close();
+  });
 }
 
 // 커스텀 타이틀바 - 기본 창틀을 껐으므로(frame:false) 최소화/최대화/닫기를 직접 IPC로 구현
