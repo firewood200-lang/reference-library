@@ -6,7 +6,7 @@
 <style>
   * { box-sizing: border-box; }
   html {
-    --thumb-size: 150px; --sidebar-w: 260px; --detail-w: 300px;
+    --thumb-size: 150px; --sidebar-w: 260px; --detail-w: 300px; --detail-media-h: 360px;
     /* 통일된 디자인 토큰 - 색/여백/모서리를 여기서만 관리해서 앱 전체가 같은 느낌을 갖게 한다 */
     --bg-0:#17181c; --bg-1:#1d1f24; --bg-2:#25272e; --bg-3:#2e3038; --bg-4:#383a43;
     --border:#34363f; --border-soft:rgba(255,255,255,.06);
@@ -161,9 +161,18 @@
   /* 2026-08-14: 원래 #detail video만 max-height:360px로 높이가 제한돼 있고 #detail img는 제한이 없었다 -
      세로로 긴 원본 이미지를 선택하면 미리보기가 패널 높이를 훨씬 넘게 늘어나서, 그 아래 태그·메모
      입력창·버튼들이 스크롤을 많이 내려야만 보이는 문제로 이어졌다(사용자 확인). video와 동일하게
-     최대 높이를 두고, object-fit:contain으로 잘리지 않게 비율 유지한 채 안에 맞춘다. */
-  #detail img { width:100%; max-height:360px; object-fit:contain; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-0); box-shadow:var(--shadow-sm); }
-  #detail video { width:100%; max-height:360px; border-radius:var(--radius-md); margin-bottom:10px; background:#000; box-shadow:var(--shadow-sm); }
+     최대 높이를 두고, object-fit:contain으로 잘리지 않게 비율 유지한 채 안에 맞춘다.
+     2026-08-18: 고정 360px라 패널을 옆으로 넓혀도(--detail-w 드래그) 이미지가 커지지 않는다는
+     피드백 - 이미지 정보를 전혀 파악할 수 없다고 함. 높이를 --detail-media-h 변수로 바꾸고
+     .detail-media-wrap 아래 세로 리사이저(row-resize)를 둬서 사용자가 필요할 때만 늘릴 수 있게 함.
+     기본값(360px)은 기존과 동일해서 위 스크롤 문제는 그대로 방지된다. */
+  .detail-media-wrap { width:100%; height:var(--detail-media-h); margin-bottom:0; position:relative; }
+  .detail-media-wrap img, .detail-media-wrap video { width:100%; height:100%; object-fit:contain; border-radius:var(--radius-md) var(--radius-md) 0 0; background:var(--bg-0); box-shadow:var(--shadow-sm); display:block; }
+  .detail-media-wrap video { background:#000; }
+  /* .detail-media-wrap로 감싸지 않은 예전 방식의 img(있다면 대비용 fallback)는 기존처럼 360px 제한 */
+  #detailScroll > img { width:100%; max-height:360px; object-fit:contain; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-0); box-shadow:var(--shadow-sm); }
+  .media-resizer { width:100%; height:6px; flex-shrink:0; cursor:row-resize; background:var(--bg-2); border-radius:0 0 var(--radius-md) var(--radius-md); margin-bottom:10px; transition:background .15s ease; }
+  .media-resizer:hover, .media-resizer.dragging { background:var(--accent); }
   #detail .detail-icon { width:100%; padding:40px 0; text-align:center; font-size:64px; border-radius:var(--radius-md); margin-bottom:10px; background:var(--bg-2); }
   #detail .row { margin-bottom:9px; font-size:12px; color:var(--text-1); word-break:break-all; line-height:1.5; }
   #detail .row b { color:var(--text-0); font-size:13.5px; }
@@ -1075,10 +1084,13 @@ function initThumbSize() {
 function initResizers() {
   const savedSidebar = localStorage.getItem('reflib_sidebarW');
   const savedDetail = localStorage.getItem('reflib_detailW');
+  const savedMediaH = localStorage.getItem('reflib_detailMediaH');
   if (savedSidebar) document.documentElement.style.setProperty('--sidebar-w', savedSidebar + 'px');
   if (savedDetail) document.documentElement.style.setProperty('--detail-w', savedDetail + 'px');
+  // 2026-08-18: 미리보기 세로 높이(bindMediaResizer가 저장)도 좌우 폭처럼 시작할 때 복원한다.
+  if (savedMediaH) document.documentElement.style.setProperty('--detail-media-h', savedMediaH + 'px');
 
-  function makeDraggable(handle, cssVar, storageKey, targetEl, invert) {
+  function makeDraggable(handle, cssVar, storageKey, targetEl, invert, maxW) {
     handle.addEventListener('mousedown', (e) => {
       e.preventDefault();
       const startX = e.clientX;
@@ -1087,7 +1099,7 @@ function initResizers() {
       document.body.style.userSelect = 'none';
       function onMove(ev) {
         const delta = invert ? (startX - ev.clientX) : (ev.clientX - startX);
-        const newW = Math.max(160, Math.min(600, Math.round(startW + delta)));
+        const newW = Math.max(160, Math.min(maxW || 600, Math.round(startW + delta)));
         document.documentElement.style.setProperty(cssVar, newW + 'px');
       }
       function onUp() {
@@ -1102,8 +1114,10 @@ function initResizers() {
       document.addEventListener('mouseup', onUp);
     });
   }
-  makeDraggable(document.getElementById('resizerLeft'), '--sidebar-w', 'reflib_sidebarW', document.getElementById('sidebar'), false);
-  makeDraggable(document.getElementById('resizerRight'), '--detail-w', 'reflib_detailW', document.getElementById('detail'), true);
+  makeDraggable(document.getElementById('resizerLeft'), '--sidebar-w', 'reflib_sidebarW', document.getElementById('sidebar'), false, 600);
+  // 2026-08-18: 우측 상세 패널은 기존 최대 600px로는 가로로 긴 원본(레퍼런스 시트 등)을 봐도
+  // 여전히 작아서 "정보를 전혀 파악할 수 없다"는 피드백 - 최대치를 900px로 넓힘.
+  makeDraggable(document.getElementById('resizerRight'), '--detail-w', 'reflib_detailW', document.getElementById('detail'), true, 900);
 }
 
 // 커스텀 타이틀바 - 기본 창틀을 껐으므로(frame:false) 최소화/최대화/닫기를 직접 IPC로 구현
@@ -2428,6 +2442,37 @@ async function enterDocEditMode(targetPath) {
   };
 }
 
+// 2026-08-18: 상세 패널 미리보기(이미지/영상) 높이를 드래그로 조절하는 세로 리사이저.
+// renderDetail()이 선택 바뀔 때마다 #detailScroll 내용을 통째로 다시 그리므로, 핸들도 매번
+// 새로 생기고, 그때마다 이 함수를 다시 불러서 새 핸들에 리스너를 새로 붙인다(구조는 좌우 폭
+// 리사이저인 makeDraggable()과 동일 - 세로 방향이라 별도 함수로 뺌).
+function bindMediaResizer() {
+  const handle = document.getElementById('detailMediaResizer');
+  if (!handle) return;
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--detail-media-h')) || 360;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    function onMove(ev) {
+      const delta = ev.clientY - startY;
+      const newH = Math.max(160, Math.min(1000, Math.round(startH + delta)));
+      document.documentElement.style.setProperty('--detail-media-h', newH + 'px');
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      handle.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      const finalH = getComputedStyle(document.documentElement).getPropertyValue('--detail-media-h');
+      localStorage.setItem('reflib_detailMediaH', parseInt(finalH));
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 function renderDetail() {
   const detail = document.getElementById('detailScroll');
   if (selectedPaths.size > 1) { renderBulkDetail(detail); return; }
@@ -2453,15 +2498,15 @@ function renderDetail() {
   const miniwinThumbCache = kind === 'miniwin' ? thumbCachePath(selectedPath, 'jpg') : null;
   const hasMiniwinThumb = miniwinThumbCache && fs.existsSync(miniwinThumbCache);
   const previewHtml = kind === 'image'
-    ? `<img id="detailImg" src="${toFileUrl(selectedPath)}">`
+    ? `<div class="detail-media-wrap"><img id="detailImg" src="${toFileUrl(selectedPath)}"></div><div class="media-resizer" id="detailMediaResizer" title="드래그해서 미리보기 크기 조절"></div>`
     : kind === 'video'
-    ? `<video id="detailVideo" src="${toFileUrl(selectedPath)}" controls></video>`
+    ? `<div class="detail-media-wrap"><video id="detailVideo" src="${toFileUrl(selectedPath)}" controls></video></div><div class="media-resizer" id="detailMediaResizer" title="드래그해서 미리보기 크기 조절"></div>`
     : (kind === 'embed' && imgInfo.embedUrl)
     ? `<div class="detail-icon" id="detailEmbedLoading" style="height:360px;">불러오는 중...</div>`
     : kind === 'link'
     ? `<div id="detailLink"><div class="detail-icon" id="detailLinkLoading">불러오는 중...</div></div>`
     : (kind === 'miniwin' && hasMiniwinThumb)
-    ? `<img id="detailImg" src="${toFileUrl(miniwinThumbCache)}">`
+    ? `<div class="detail-media-wrap"><img id="detailImg" src="${toFileUrl(miniwinThumbCache)}"></div><div class="media-resizer" id="detailMediaResizer" title="드래그해서 미리보기 크기 조절"></div>`
     : isTextDoc
     ? `<div id="detailDoc"><div class="detail-icon" id="detailDocLoading">불러오는 중...</div></div>`
     : `<div class="detail-icon" id="detailIcon">${iconForKind(kind)}</div>`;
@@ -2487,6 +2532,12 @@ function renderDetail() {
       <button id="btnTrash">삭제(휴지통)</button>
     </div>
   `;
+
+  // 2026-08-18: image/video/miniwin은 previewHtml에 .detail-media-wrap + .media-resizer가
+  // 이미 같이 박혀 있으므로(model은 위에서 비동기로 따로 붙임) 여기서 한 번에 드래그 바인딩.
+  if (kind === 'image' || kind === 'video' || (kind === 'miniwin' && hasMiniwinThumb)) {
+    bindMediaResizer();
+  }
 
   if (kind === 'link' && imgInfo.linkUrl) {
     document.getElementById('btnOpenBrowser').onclick = () => shell.openExternal(imgInfo.linkUrl);
@@ -2515,10 +2566,20 @@ function renderDetail() {
       if (!cachePath || selectedPath !== targetPath) return;
       const iconEl = document.getElementById('detailIcon');
       if (!iconEl) return;
+      // 2026-08-18: 다른 미리보기(image/video/miniwin)와 동일하게 .detail-media-wrap + 세로
+      // 리사이저로 감싸서, 여기도 이미지 크기를 var(--detail-media-h)로 통일하고 드래그로 키울 수 있게 함.
+      const wrap = document.createElement('div');
+      wrap.className = 'detail-media-wrap';
       const img = document.createElement('img');
       img.id = 'detailImg';
       img.src = toFileUrl(cachePath);
-      iconEl.replaceWith(img);
+      wrap.appendChild(img);
+      const resizer = document.createElement('div');
+      resizer.className = 'media-resizer';
+      resizer.id = 'detailMediaResizer';
+      resizer.title = '드래그해서 미리보기 크기 조절';
+      iconEl.replaceWith(wrap, resizer);
+      bindMediaResizer();
     });
   }
 
@@ -2549,7 +2610,7 @@ function renderDetail() {
       const d = r.data;
       const paras = (d.paragraphs || []).slice(0, 6); // 상세 패널에는 앞부분만 - 전체는 "앱으로 열기"의 읽기 모드 창에서 본다
       wrapEl.innerHTML = `
-        ${d.image ? `<img src="${escapeHtml(d.image)}" style="width:100%;border-radius:6px;margin-bottom:8px;background:#181818;">` : ''}
+        ${d.image ? `<img src="${escapeHtml(d.image)}" style="width:100%;max-height:360px;object-fit:contain;border-radius:6px;margin-bottom:8px;background:#181818;">` : ''}
         <div style="font-weight:600;margin-bottom:6px;line-height:1.4;">${escapeHtml(d.title || '')}</div>
         ${paras.length
           ? paras.map(p => `<div style="font-size:12.5px;color:#bbb;margin-bottom:6px;line-height:1.6;">${escapeHtml(p)}</div>`).join('')
