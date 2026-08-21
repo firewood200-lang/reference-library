@@ -74,6 +74,16 @@ const DEFAULT_PENTOUCH_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon stud
 const PENTOUCH_WEB_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch-web';
 const PENTOUCH_WEB_BAT = path.join(PENTOUCH_WEB_DIR, '펜터치웹서버실행.bat');
 const PENTOUCH_WEB_URL = 'http://127.0.0.1:8189';
+// 웹툰 3D(사진/선화 -> 3D 참고용 메쉬) - 버튼 하나로 Hunyuan3D-2mv 서버(꺼져 있으면 자동 시작)를
+// 먼저 켜고, 그 다음 webtoon_3d_app.py(Gradio 웹앱, 꺼져 있으면 자동 시작)를 켠 뒤 창을 연다.
+// ComfyUI 버튼과 같은 "서버 상태 확인 -> 필요하면 켜기 -> 창 열기" 패턴을 그대로 따르되, 서버가
+// 두 개(Hunyuan3D-2mv + webtoon 웹앱)라서 순서대로 두 번 확인/기동한다. 2026-08-22 추가.
+const HUNYUAN_MV_DIR = 'D:\\Hunyuan3D2_WinPortable\\Hunyuan3D2_WinPortable_cu129\\Hunyuan3D2_WinPortable';
+const HUNYUAN_MV_BAT = path.join(HUNYUAN_MV_DIR, 'hunyuan3d_mv_start.bat');
+const HUNYUAN_MV_URL = 'http://127.0.0.1:8080';
+const WEBTOON3D_DIR = 'D:\\AI-Workflow';
+const WEBTOON3D_BAT = path.join(WEBTOON3D_DIR, 'webtoon_3d_app_start.bat');
+const WEBTOON3D_URL = 'http://127.0.0.1:7860';
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2320,6 +2330,105 @@ ipcMain.handle('open-comfyui', async () => {
     const beforeHandles = await listChromeWindowHandles();
     const child = spawn(exePath, [
       `--app=${COMFYUI_URL}`,
+      `--window-size=${w},${h}`,
+      `--window-position=${x},${y}`,
+      '--force-dark-mode',
+      '--enable-features=WebContentsForceDark'
+    ], { detached: true, stdio: 'ignore' });
+    child.unref();
+    positionNewMiniWindow(beforeHandles, x, y, w, h);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+function checkHunyuanMvAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(HUNYUAN_MV_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function waitForHunyuanMv(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkHunyuanMvAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+function checkWebtoon3dAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(WEBTOON3D_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function waitForWebtoon3d(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkWebtoon3dAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+// 웹툰 3D: Hunyuan3D-2mv 서버 -> webtoon_3d_app.py(Gradio 웹앱) 순서로 켜고(이미 켜져 있으면
+// 그대로 넘어감) 마지막에 브라우저 창을 연다. Hunyuan3D-2mv는 모델 로딩 때문에 켜지는 데
+// 시간이 오래 걸릴 수 있어(과거에 몇 분 걸린 적도 있음) ComfyUI보다 넉넉하게 최대 3분 기다린다.
+ipcMain.handle('open-webtoon3d', async () => {
+  try {
+    const hunyuanAlreadyRunning = await checkHunyuanMvAlive();
+    if (!hunyuanAlreadyRunning) {
+      if (!fs.existsSync(HUNYUAN_MV_BAT)) {
+        return { success: false, error: 'Hunyuan3D-2mv 실행 파일을 찾을 수 없습니다: ' + HUNYUAN_MV_BAT };
+      }
+      const hunyuanProc = spawn('cmd.exe', ['/c', HUNYUAN_MV_BAT], {
+        cwd: HUNYUAN_MV_DIR, detached: true, stdio: 'ignore'
+      });
+      hunyuanProc.unref();
+      const hunyuanReady = await waitForHunyuanMv(180000); // 모델 로딩에 시간이 걸릴 수 있어 최대 3분 대기
+      if (!hunyuanReady) {
+        return { success: false, error: 'Hunyuan3D-2mv 서버가 3분 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+      }
+    }
+
+    const webtoonAlreadyRunning = await checkWebtoon3dAlive();
+    if (!webtoonAlreadyRunning) {
+      if (!fs.existsSync(WEBTOON3D_BAT)) {
+        return { success: false, error: '웹툰 3D 앱 실행 파일을 찾을 수 없습니다: ' + WEBTOON3D_BAT };
+      }
+      const webtoonProc = spawn('cmd.exe', ['/c', WEBTOON3D_BAT], {
+        cwd: WEBTOON3D_DIR, detached: true, stdio: 'ignore'
+      });
+      webtoonProc.unref();
+      const webtoonReady = await waitForWebtoon3d(60000);
+      if (!webtoonReady) {
+        return { success: false, error: '웹툰 3D 앱이 60초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+      }
+    }
+
+    const exePath = await resolveExePath('chromeExe', DEFAULT_CHROME_EXE, '크롬 실행 파일(chrome.exe)을 선택하세요');
+    if (!exePath) return { success: false, error: '크롬 실행 파일 위치를 찾지 못함' };
+    const w = 1600, h = 960;
+    const mb = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
+    const cx = mb ? mb.x + mb.width / 2 : null;
+    const cy = mb ? mb.y + mb.height / 2 : null;
+    const display = mb ? screen.getDisplayNearestPoint({ x: Math.round(cx), y: Math.round(cy) }) : screen.getPrimaryDisplay();
+    const work = display.workArea;
+    let x = mb ? Math.round(cx - w / 2) : Math.round(work.x + (work.width - w) / 2);
+    let y = mb ? Math.round(cy - h / 2) : Math.round(work.y + (work.height - h) / 2);
+    x = Math.max(work.x, Math.min(x, work.x + work.width - w));
+    y = Math.max(work.y, Math.min(y, work.y + work.height - h));
+    const beforeHandles = await listChromeWindowHandles();
+    const child = spawn(exePath, [
+      `--app=${WEBTOON3D_URL}`,
       `--window-size=${w},${h}`,
       `--window-position=${x},${y}`,
       '--force-dark-mode',

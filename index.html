@@ -348,6 +348,7 @@
           <button class="ql-btn" id="btnQlPureref">PureRef</button>
           <button class="ql-btn" id="btnQlComfyUI" title="ComfyUI 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다 (최대 1분 정도 걸릴 수 있음)">ComfyUI 워크플로우</button>
           <button class="ql-btn ql-main" id="btnQlPentouch" title="펜터치 전용 앱 - LoRA(mypenink)+ControlNet(MistoLine) 워크플로우를 컷번호/저장폴더/세부 스탯까지 직접 조절할 수 있는 화면으로 엽니다">펜터치</button>
+          <button class="ql-btn ql-main" id="btnQlWebtoon3d" title="웹툰 3D 참고용 메쉬 생성 앱 - Hunyuan3D-2mv 서버와 webtoon 웹앱이 꺼져 있으면 순서대로 자동으로 켠 뒤 창을 엽니다 (모델 로딩 때문에 최대 몇 분 걸릴 수 있음)">웹툰 3D</button>
         </div>
         <!-- 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 탭/주소창 없는 작은 창으로 열 수 있다 -
              임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
@@ -540,6 +541,19 @@ document.getElementById('btnQlPentouch').addEventListener('click', async (ev) =>
   try {
     const r = await ipcRenderer.invoke('open-pentouch');
     if (!r.success) alert('펜터치 앱 열기 실패: ' + r.error);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+// 웹툰 3D: Hunyuan3D-2mv 서버가 꺼져 있으면 모델 로딩 때문에 최대 3분까지 걸릴 수 있어서,
+// 기다리는 동안 버튼 글자를 바꿔 진행 상황을 보여준다(ComfyUI 버튼과 같은 패턴).
+document.getElementById('btnQlWebtoon3d').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 서버 켜는 중...';
+  try {
+    const r = await ipcRenderer.invoke('open-webtoon3d');
+    if (!r.success) alert('웹툰 3D 앱 열기 실패: ' + r.error);
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
