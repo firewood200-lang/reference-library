@@ -84,9 +84,6 @@ const HUNYUAN_MV_URL = 'http://127.0.0.1:8080';
 const WEBTOON3D_DIR = 'D:\\AI-Workflow';
 const WEBTOON3D_BAT = path.join(WEBTOON3D_DIR, 'webtoon_3d_app_start.bat');
 const WEBTOON3D_URL = 'http://127.0.0.1:7860';
-// Hunyuan3D-2.1(고품질, 이미지 1장) - 2026-08-22 세션에서 추가된 REST API 버전.
-// 2.0mv와는 별도 설치 폴더/포트를 쓰고, RUN.bat으로 켜진다. 샤프+텍스처 두 파이프라인을
-// 로딩해서 2.0mv보다 오래 걸린 적이 있어(과거 로그 기준 수 분) 대기 시간을 5분으로 넉넉히 잡는다.
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
