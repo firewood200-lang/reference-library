@@ -418,7 +418,9 @@ async function waitForAnythingLLM(maxWaitMs) {
 // AnythingLLM 창이 떠 있어도, 그 뒤에서 답을 실제로 만들어주는 Ollama 서비스가 꺼져 있으면
 // 채팅에서 "Ollama service could not be reached. Is Ollama running?" 오류가 난다.
 // AnythingLLM.exe 실행과 Ollama 실행은 서로 별개이므로 따로 확인하고 켜줘야 한다.
-const OLLAMA_ALIVE_CHECK_URL = 'http://localhost:11434';
+// 2026-08-23: 'localhost'로 접속하면 이 컴퓨터에서 Node가 IPv6(::1)를 먼저 시도하다 실패하는 문제가 있어,
+// Ollama가 실제로 바인딩하는 주소인 127.0.0.1을 직접 명시한다.
+const OLLAMA_ALIVE_CHECK_URL = 'http://127.0.0.1:11434';
 function checkOllamaAlive() {
   return new Promise((resolve) => {
     const req = http.get(OLLAMA_ALIVE_CHECK_URL, { timeout: 3000 }, (res) => {
@@ -476,7 +478,13 @@ function tryStartOllama() {
 }
 function runNotionSyncScript() {
   return new Promise((resolve) => {
-    const proc = spawn('py', ['sync.py'], { cwd: NOTION_SYNC_DIR, windowsHide: true });
+    // 2026-08-23: 파이썬 출력이 윈도우 콘솔 기본 인코딩(cp949)으로 나가면서 한글이 깨지는 문제가 있어,
+    // 파이썬 자체를 UTF-8로 출력하도록 강제한다.
+    const proc = spawn('py', ['sync.py'], {
+      cwd: NOTION_SYNC_DIR,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
