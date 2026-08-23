@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
+const net = require('net');
 const { spawn, spawnSync } = require('child_process');
 const os = require('os');
 const zlib = require('zlib'); // docx(zip) 안의 문서 XML 압축을 풀 때 씀 - 별도 라이브러리 설치 없이 내장 모듈만으로 처리
@@ -384,22 +385,30 @@ ipcMain.handle('git-pull', async () => {
 // 2) notion-sync 폴더의 sync.py를 실행해서 노션에 새로 쓰거나 수정한 내용을 AnythingLLM에
 // 자동으로 반영한다. ComfyUI 버튼(server 꺼져 있으면 켜고 기다리는 패턴)과 같은 방식.
 function checkAnythingLLMAlive() {
-  // 2026-08-23: HTTP API(포트 3001) 방식은 데스크톱 앱에서 API가 기본적으로 열려있지 않거나
-  // 인증이 필요해서 창이 떠 있어도 "꺼짐"으로 오판하는 문제가 있었다.
-  // 그래서 API를 두드리는 대신, 윈도우 작업 목록(tasklist)에서 AnythingLLM.exe 프로세스가
-  // 실제로 떠 있는지를 직접 확인하는 방식으로 바꾼다 - 훨씬 확실하다.
-  try {
-    const result = spawnSync('tasklist', ['/FI', 'IMAGENAME eq AnythingLLM.exe'], { encoding: 'utf-8', windowsHide: true });
-    const out = (result.stdout || '') + (result.stderr || '');
-    return out.toLowerCase().includes('anythingllm.exe');
-  } catch (err) {
-    return false;
-  }
+  // 2026-08-23: 처음엔 /api/v1/workspaces API로, 그다음엔 tasklist 프로세스 확인으로 시도했으나
+  // 각각 "API 미설정"과 "확인할 때마다 콘솔 창이 깜빡이는 문제"가 있었다.
+  // 그래서 서브프로세스를 전혀 띄우지 않는 순수 TCP 포트 연결 확인으로 바꾼다.
+  // AnythingLLM 데스크톱 앱은 자체 화면(렌더러)이 내부적으로 이 포트(3001)와 통신하므로,
+  // Developer API 설정과 무관하게 앱이 켜져 있으면 이 포트는 항상 열려 있다.
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port: 3001 });
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(2000);
+    socket.on('connect', () => finish(true));
+    socket.on('error', () => finish(false));
+    socket.on('timeout', () => finish(false));
+  });
 }
 async function waitForAnythingLLM(maxWaitMs) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
-    if (checkAnythingLLMAlive()) return true;
+    if (await checkAnythingLLMAlive()) return true;
     await new Promise((r) => setTimeout(r, 1500));
   }
   return false;
@@ -428,15 +437,42 @@ async function waitForOllama(maxWaitMs) {
   }
   return false;
 }
+// 마지막으로 ollama 자동 실행을 시도했을 때 무슨 일이 있었는지 기록해둔다.
+// (실패해도 이유를 알 수 없어서 사용자가 매번 추측만 해야 했던 문제를 없애기 위함)
+let lastOllamaStartAttemptLog = '';
 function tryStartOllama() {
-  try {
-    const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.on('error', () => {}); // PATH에 없으면 여기로 온다 - 아래 alive 체크 실패로 사용자에게 안내됨
-    child.unref();
-    return true;
-  } catch (err) {
-    return false;
-  }
+  return new Promise((resolve) => {
+    lastOllamaStartAttemptLog = '';
+    let child;
+    try {
+      child = spawn('ollama', ['serve'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (err) {
+      lastOllamaStartAttemptLog = 'ollama 명령 실행 자체에 실패: ' + err.message;
+      resolve(false);
+      return;
+    }
+    let settled = false;
+    child.stdout && child.stdout.on('data', (d) => { lastOllamaStartAttemptLog += d.toString('utf-8'); });
+    child.stderr && child.stderr.on('data', (d) => { lastOllamaStartAttemptLog += d.toString('utf-8'); });
+    child.on('error', (err) => {
+      // 'ollama' 명령을 PATH에서 찾지 못하면(ENOENT) 여기로 온다.
+      lastOllamaStartAttemptLog = 'ollama 명령을 실행하지 못했습니다 (' + err.message + '). PATH에 등록되어 있는지 확인이 필요합니다.';
+      if (!settled) { settled = true; resolve(false); }
+    });
+    child.on('exit', (code, signal) => {
+      // serve가 곧바로 종료되면(예: 포트 충돌, 권한 문제 등) 실패로 본다.
+      if (!settled) {
+        settled = true;
+        lastOllamaStartAttemptLog += `\n(ollama serve 프로세스가 곧바로 종료됨: code=${code}, signal=${signal})`;
+        resolve(false);
+      }
+    });
+    // 1.5초 안에 error/exit가 안 나면 일단 정상적으로 떠 있는 것으로 보고 넘어간다.
+    // (실제로 응답 가능한지는 waitForOllama가 별도로 포트를 확인한다)
+    setTimeout(() => {
+      if (!settled) { settled = true; child.unref(); resolve(true); }
+    }, 1500);
+  });
 }
 function runNotionSyncScript() {
   return new Promise((resolve) => {
@@ -465,20 +501,20 @@ ipcMain.handle('run-local-llm-and-sync', async () => {
     const ollamaAlreadyRunning = await checkOllamaAlive();
     if (!ollamaAlreadyRunning) {
       steps.push('Ollama가 꺼져 있어 켜는 중...');
-      const started = tryStartOllama();
+      const started = await tryStartOllama();
       if (!started) {
-        return { success: false, message: 'Ollama를 자동으로 켜지 못했습니다. Ollama 프로그램을 먼저 한 번 직접 실행해주세요.' };
+        return { success: false, message: 'Ollama를 자동으로 켜지 못했습니다. Ollama 프로그램을 먼저 한 번 직접 실행해주세요.\n\n[상세 오류]\n' + (lastOllamaStartAttemptLog || '(추가 정보 없음)') };
       }
       const ollamaReady = await waitForOllama(30000); // 최대 30초 대기
       if (!ollamaReady) {
-        return { success: false, message: 'Ollama가 30초 안에 켜지지 않았습니다. Ollama 프로그램을 먼저 한 번 직접 실행한 뒤 다시 눌러주세요.\n(설치 시 PATH에 자동으로 등록되지 않았다면 "ollama" 명령을 못 찾아서 자동 실행이 안 될 수 있습니다)' };
+        return { success: false, message: 'Ollama 프로세스는 실행됐지만 30초 안에 응답하지 않았습니다. Ollama 프로그램을 먼저 한 번 직접 실행한 뒤 다시 눌러주세요.\n\n[프로세스 출력]\n' + (lastOllamaStartAttemptLog || '(출력 없음)') };
       }
       steps.push('Ollama 켜짐 확인됨.');
     } else {
       steps.push('Ollama는 이미 켜져 있습니다.');
     }
 
-    const alreadyRunning = checkAnythingLLMAlive();
+    const alreadyRunning = await checkAnythingLLMAlive();
     if (!alreadyRunning) {
       const exePath = await resolveExePath('anythingllmExe', DEFAULT_ANYTHINGLLM_EXE, 'AnythingLLM 실행 파일(AnythingLLM.exe)을 선택하세요');
       if (!exePath) return { success: false, message: 'AnythingLLM 실행 파일 위치를 찾지 못했습니다.' };
