@@ -70,6 +70,11 @@ const COMFYUI_URL = 'http://127.0.0.1:8188';
 // (다른 exe 버튼들과 마찬가지로) 최초 1회 파일 선택 다이얼로그로 물어보고 그 다음부터는 기억한다.
 const DEFAULT_ANYTHINGLLM_EXE = path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'anythingllm-desktop', 'AnythingLLM.exe');
 const ANYTHINGLLM_URL = 'http://localhost:3001';
+// 살아있는지 확인할 때는 루트(/)가 아니라 가벼운 API 경로를 친다 - 루트는 SPA 전체 번들을 내려주는
+// 경로라 무겁게 느려질 수 있고, 이 경로는 노션 동기화 스크립트(anythingllm_client.py)가 실제로
+// 쓰는 것과 같은 엔드포인트라 이미 응답 확인이 된 경로다. API 키 없이 쳐도 401/403 등 어떤 응답이든
+// 오기만 하면(에러가 아니라 정상적인 HTTP 응답이면) "켜져 있다"로 판단하기에 충분하다.
+const ANYTHINGLLM_ALIVE_CHECK_URL = ANYTHINGLLM_URL + '/api/v1/workspaces';
 const NOTION_SYNC_DIR = 'C:\\Users\\user\\Claude\\Projects\\ai-webtoon studio1.0\\notion-sync';
 // 펜터치 로컬 앱 - 포스트잇/그리드와 같은 방식(소스 폴더를 이 앱의 electron 런타임으로 직접 실행).
 // ComfyUI 원본 노드 그래프(위 버튼)를 그대로 여는 대신, LoRA+ControlNet 워크플로우 전용 UI로
@@ -380,7 +385,9 @@ ipcMain.handle('git-pull', async () => {
 // 자동으로 반영한다. ComfyUI 버튼(server 꺼져 있으면 켜고 기다리는 패턴)과 같은 방식.
 function checkAnythingLLMAlive() {
   return new Promise((resolve) => {
-    const req = http.get(ANYTHINGLLM_URL, { timeout: 1500 }, (res) => {
+    // AnythingLLM 데스크톱 앱은 모델이 응답을 만들고 있을 때(추론 중) 잠깐 무거워질 수 있어서,
+    // ComfyUI 체크(1.5초)보다 넉넉하게 4초까지 기다린다 - 너무 짧으면 켜져 있는데도 꺼진 걸로 오판한다.
+    const req = http.get(ANYTHINGLLM_ALIVE_CHECK_URL, { timeout: 4000 }, (res) => {
       res.resume();
       resolve(true);
     });
@@ -424,9 +431,9 @@ ipcMain.handle('run-local-llm-and-sync', async () => {
       if (!exePath) return { success: false, message: 'AnythingLLM 실행 파일 위치를 찾지 못했습니다.' };
       launchExe(exePath);
       steps.push('AnythingLLM을 켜는 중...');
-      const ready = await waitForAnythingLLM(90000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 90초 대기
+      const ready = await waitForAnythingLLM(150000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 150초(2분 30초) 대기
       if (!ready) {
-        return { success: false, message: 'AnythingLLM이 90초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+        return { success: false, message: 'AnythingLLM이 150초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요. (이미 켜져 있는데도 이 메시지가 다시 뜬다면 알려주세요 - 확인 로직 자체를 다시 봐야 합니다)' };
       }
       steps.push('AnythingLLM 켜짐 확인됨.');
     } else {
