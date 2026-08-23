@@ -384,10 +384,35 @@ ipcMain.handle('git-pull', async () => {
 // 2) notion-sync 폴더의 sync.py를 실행해서 노션에 새로 쓰거나 수정한 내용을 AnythingLLM에
 // 자동으로 반영한다. ComfyUI 버튼(server 꺼져 있으면 켜고 기다리는 패턴)과 같은 방식.
 function checkAnythingLLMAlive() {
+  // 2026-08-23: HTTP API(포트 3001) 방식은 데스크톱 앱에서 API가 기본적으로 열려있지 않거나
+  // 인증이 필요해서 창이 떠 있어도 "꺼짐"으로 오판하는 문제가 있었다.
+  // 그래서 API를 두드리는 대신, 윈도우 작업 목록(tasklist)에서 AnythingLLM.exe 프로세스가
+  // 실제로 떠 있는지를 직접 확인하는 방식으로 바꾼다 - 훨씬 확실하다.
+  try {
+    const result = spawnSync('tasklist', ['/FI', 'IMAGENAME eq AnythingLLM.exe'], { encoding: 'utf-8', windowsHide: true });
+    const out = (result.stdout || '') + (result.stderr || '');
+    return out.toLowerCase().includes('anythingllm.exe');
+  } catch (err) {
+    return false;
+  }
+}
+async function waitForAnythingLLM(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (checkAnythingLLMAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
+
+// ---- Ollama(실제로 답변을 만들어내는 엔진) 켜기 ----
+// AnythingLLM 창이 떠 있어도, 그 뒤에서 답을 실제로 만들어주는 Ollama 서비스가 꺼져 있으면
+// 채팅에서 "Ollama service could not be reached. Is Ollama running?" 오류가 난다.
+// AnythingLLM.exe 실행과 Ollama 실행은 서로 별개이므로 따로 확인하고 켜줘야 한다.
+const OLLAMA_ALIVE_CHECK_URL = 'http://localhost:11434';
+function checkOllamaAlive() {
   return new Promise((resolve) => {
-    // AnythingLLM 데스크톱 앱은 모델이 응답을 만들고 있을 때(추론 중) 잠깐 무거워질 수 있어서,
-    // ComfyUI 체크(1.5초)보다 넉넉하게 4초까지 기다린다 - 너무 짧으면 켜져 있는데도 꺼진 걸로 오판한다.
-    const req = http.get(ANYTHINGLLM_ALIVE_CHECK_URL, { timeout: 4000 }, (res) => {
+    const req = http.get(OLLAMA_ALIVE_CHECK_URL, { timeout: 3000 }, (res) => {
       res.resume();
       resolve(true);
     });
@@ -395,13 +420,23 @@ function checkAnythingLLMAlive() {
     req.on('timeout', () => { req.destroy(); resolve(false); });
   });
 }
-async function waitForAnythingLLM(maxWaitMs) {
+async function waitForOllama(maxWaitMs) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
-    if (await checkAnythingLLMAlive()) return true;
-    await new Promise((r) => setTimeout(r, 1500));
+    if (await checkOllamaAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
+}
+function tryStartOllama() {
+  try {
+    const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', () => {}); // PATH에 없으면 여기로 온다 - 아래 alive 체크 실패로 사용자에게 안내됨
+    child.unref();
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 function runNotionSyncScript() {
   return new Promise((resolve) => {
@@ -425,7 +460,25 @@ function runNotionSyncScript() {
 ipcMain.handle('run-local-llm-and-sync', async () => {
   const steps = [];
   try {
-    const alreadyRunning = await checkAnythingLLMAlive();
+    // 0) Ollama(실제로 답변을 만들어내는 엔진)가 켜져 있는지 먼저 확인. 이게 꺼져 있으면
+    //    AnythingLLM 창이 떠 있어도 채팅에서 "Ollama service could not be reached" 오류가 난다.
+    const ollamaAlreadyRunning = await checkOllamaAlive();
+    if (!ollamaAlreadyRunning) {
+      steps.push('Ollama가 꺼져 있어 켜는 중...');
+      const started = tryStartOllama();
+      if (!started) {
+        return { success: false, message: 'Ollama를 자동으로 켜지 못했습니다. Ollama 프로그램을 먼저 한 번 직접 실행해주세요.' };
+      }
+      const ollamaReady = await waitForOllama(30000); // 최대 30초 대기
+      if (!ollamaReady) {
+        return { success: false, message: 'Ollama가 30초 안에 켜지지 않았습니다. Ollama 프로그램을 먼저 한 번 직접 실행한 뒤 다시 눌러주세요.\n(설치 시 PATH에 자동으로 등록되지 않았다면 "ollama" 명령을 못 찾아서 자동 실행이 안 될 수 있습니다)' };
+      }
+      steps.push('Ollama 켜짐 확인됨.');
+    } else {
+      steps.push('Ollama는 이미 켜져 있습니다.');
+    }
+
+    const alreadyRunning = checkAnythingLLMAlive();
     if (!alreadyRunning) {
       const exePath = await resolveExePath('anythingllmExe', DEFAULT_ANYTHINGLLM_EXE, 'AnythingLLM 실행 파일(AnythingLLM.exe)을 선택하세요');
       if (!exePath) return { success: false, message: 'AnythingLLM 실행 파일 위치를 찾지 못했습니다.' };
