@@ -331,6 +331,7 @@
           <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/writer-room">작가실 스텝업</button>
           <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/writing_studio_v2_7">Writing Studio</button>
           <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/Ai-Workflow">AI 워크플로우</button>
+          <button class="ql-btn ql-main" id="btnQlLocalLLM" title="AnythingLLM(로컬 LLM)이 꺼져 있으면 켜고, 노션에 새로 쓰거나 수정한 내용을 자동으로 반영합니다 (몇 분 정도 걸릴 수 있습니다)">로컬LLM</button>
           <button class="ql-btn" id="btnQlWorkTimer">워크 타이머</button>
           <button class="ql-btn" id="btnQlClock">시계</button>
           <button class="ql-btn" id="btnQlStickyNotes">포스트잇</button>
@@ -521,6 +522,21 @@ document.getElementById('btnQlClock').addEventListener('click', async () => {
 document.getElementById('btnQlStickyNotes').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('open-sticky-notes');
   if (!r.success) alert('포스트잇 앱 실행 실패: ' + r.error);
+});
+
+// 로컬LLM: AnythingLLM이 꺼져 있으면 켜고 뜰 때까지 기다린 뒤 노션 동기화까지 이어서 실행하므로
+// 시간이 걸릴 수 있어서, 기다리는 동안 버튼 글자를 바꿔 진행 상황을 보여준다(ComfyUI/웹툰 3D 버튼과
+// 같은 패턴). 끝나면 마지막 로그 요약을 alert로 보여준다.
+document.getElementById('btnQlLocalLLM').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 로컬LLM 켜는 중/동기화 중...';
+  try {
+    const r = await ipcRenderer.invoke('run-local-llm-and-sync');
+    alert((r.success ? '로컬LLM 동기화 완료\n\n' : '로컬LLM 동기화 실패\n\n') + r.message);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
 });
 // ComfyUI: 서버가 꺼져 있으면 켜는 데 시간이 걸릴 수 있어서, 기다리는 동안 버튼 글자를 바꿔 진행 상황을 보여준다.
 document.getElementById('btnQlComfyUI').addEventListener('click', async (ev) => {

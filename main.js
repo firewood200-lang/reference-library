@@ -65,6 +65,12 @@ const DEFAULT_OBJPLACER_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon stu
 const COMFYUI_DIR = 'D:\\AI-Workflow\\ComfyUI';
 const COMFYUI_BAT = path.join(COMFYUI_DIR, 'ComfyUI실행.bat');
 const COMFYUI_URL = 'http://127.0.0.1:8188';
+// AnythingLLM(로컬 LLM 데스크톱 앱) - 켜져 있는지 확인해서 꺼져 있으면 켜고, 뜰 때까지 기다린 뒤
+// 노션 동기화까지 이어서 실행하는 용도. 2026-08-23 추가. 설치 위치를 몰라서 기본 경로가 없으면
+// (다른 exe 버튼들과 마찬가지로) 최초 1회 파일 선택 다이얼로그로 물어보고 그 다음부터는 기억한다.
+const DEFAULT_ANYTHINGLLM_EXE = path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'anythingllm-desktop', 'AnythingLLM.exe');
+const ANYTHINGLLM_URL = 'http://localhost:3001';
+const NOTION_SYNC_DIR = 'C:\\Users\\user\\Claude\\Projects\\ai-webtoon studio1.0\\notion-sync';
 // 펜터치 로컬 앱 - 포스트잇/그리드와 같은 방식(소스 폴더를 이 앱의 electron 런타임으로 직접 실행).
 // ComfyUI 원본 노드 그래프(위 버튼)를 그대로 여는 대신, LoRA+ControlNet 워크플로우 전용 UI로
 // 감싼 별도 앱. 2026-08-06 추가.
@@ -366,6 +372,74 @@ ipcMain.handle('git-pull', async () => {
     success: true,
     message: upToDate ? '이미 최신 상태입니다.' : ('최신 코드를 정상적으로 받아왔습니다.\n\n' + pull.stdout.trim()),
   };
+});
+
+// ---- 로컬LLM(AnythingLLM) 켜기 + 노션 동기화 (2026-08-23) ----
+// "로컬LLM" 버튼 하나로: 1) AnythingLLM 데스크톱 앱이 꺼져 있으면 켜고 뜰 때까지 기다린 뒤,
+// 2) notion-sync 폴더의 sync.py를 실행해서 노션에 새로 쓰거나 수정한 내용을 AnythingLLM에
+// 자동으로 반영한다. ComfyUI 버튼(server 꺼져 있으면 켜고 기다리는 패턴)과 같은 방식.
+function checkAnythingLLMAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(ANYTHINGLLM_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function waitForAnythingLLM(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkAnythingLLMAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
+function runNotionSyncScript() {
+  return new Promise((resolve) => {
+    const proc = spawn('py', ['sync.py'], { cwd: NOTION_SYNC_DIR, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        const tail = (stderr || stdout || '알 수 없는 오류').trim().split('\n').slice(-15).join('\n');
+        resolve({ success: false, message: '노션 동기화 실패 (code ' + code + '):\n\n' + tail });
+      } else {
+        const tail = stdout.trim().split('\n').slice(-15).join('\n');
+        resolve({ success: true, message: tail || '동기화가 완료되었습니다.' });
+      }
+    });
+    proc.on('error', (err) => resolve({ success: false, message: '노션 동기화 실행 실패: ' + err.message + '\n(notion-sync 폴더 위치나 py 설치를 확인해주세요)' }));
+  });
+}
+ipcMain.handle('run-local-llm-and-sync', async () => {
+  const steps = [];
+  try {
+    const alreadyRunning = await checkAnythingLLMAlive();
+    if (!alreadyRunning) {
+      const exePath = await resolveExePath('anythingllmExe', DEFAULT_ANYTHINGLLM_EXE, 'AnythingLLM 실행 파일(AnythingLLM.exe)을 선택하세요');
+      if (!exePath) return { success: false, message: 'AnythingLLM 실행 파일 위치를 찾지 못했습니다.' };
+      launchExe(exePath);
+      steps.push('AnythingLLM을 켜는 중...');
+      const ready = await waitForAnythingLLM(90000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 90초 대기
+      if (!ready) {
+        return { success: false, message: 'AnythingLLM이 90초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+      }
+      steps.push('AnythingLLM 켜짐 확인됨.');
+    } else {
+      steps.push('AnythingLLM은 이미 켜져 있습니다.');
+    }
+    const syncResult = await runNotionSyncScript();
+    return {
+      success: syncResult.success,
+      message: steps.join('\n') + '\n\n' + syncResult.message,
+    };
+  } catch (err) {
+    return { success: false, message: '로컬LLM 실행/동기화 중 오류: ' + err.message };
+  }
 });
 
 // ---- 전체 앱 코드저장/받기 (2026-07-23) ----
