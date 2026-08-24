@@ -156,11 +156,14 @@ ipcMain.handle('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.c
 
 app.whenReady().then(() => {
   createWindow();
-  // Ctrl+Alt+Y: 그 순간 포커스된 창(크롬이든 뭐든)의 항상 위를 켜고 끈다 - 아래쪽 toggleFocusedWindowTopmost 참고
-  // (예전에는 Ctrl+Alt+T였는데, 이 PC의 다른 프로그램이 그 조합키를 이미 선점하고 있어 등록이 조용히
-  // 실패했다 - Electron은 이미 선점된 전역 단축키를 등록하려 해도 에러를 던지지 않는다. 그래서 등록
-  // 성공 여부를 콘솔에 남기고, 덜 흔히 쓰이는 조합으로 바꿨다.)
-  const topmostShortcutOk = globalShortcut.register('Control+Alt+Y', async () => {
+  // Ctrl+Alt+Shift+F9: 그 순간 포커스된 창(크롬이든 뭐든)의 항상 위를 켜고 끈다 - 아래쪽
+  // toggleFocusedWindowTopmost 참고. (예전에는 Ctrl+Alt+T였는데, 이 PC의 다른 프로그램이 그 조합키를
+  // 이미 선점하고 있어 등록이 조용히 실패했다 - Electron은 이미 선점된 전역 단축키를 등록하려 해도
+  // 에러를 던지지 않는다. 그래서 Ctrl+Alt+Y로 바꿨었는데, 2026-08-24에 이것도 갑자기 안 먹는 문제가
+  // 생겨서 - 아마 이 사이 다른 프로그램이 Ctrl+Alt+Y를 선점한 것으로 추정 - 진단 겸 더 흔치 않은 이
+  // 조합으로 다시 바꿨다. 콘솔을 안 봐도 바로 알 수 있도록, 등록 성공/실패를 앱 시작 시 알림으로도
+  // 띄운다.)
+  const topmostShortcutOk = globalShortcut.register('Control+Alt+Shift+F9', async () => {
     const out = await toggleFocusedWindowTopmost();
     if (!out || out.startsWith('NOTFOUND')) return;
     const [state, title] = out.split(/:(.*)/s);
@@ -171,8 +174,16 @@ app.whenReady().then(() => {
       }).show();
     }
   });
+  if (Notification.isSupported()) {
+    new Notification({
+      title: topmostShortcutOk ? '전역 단축키 등록 성공' : '전역 단축키 등록 실패',
+      body: topmostShortcutOk
+        ? 'Ctrl+Alt+Shift+F9 (항상 위 토글) 사용 가능'
+        : 'Ctrl+Alt+Shift+F9가 이미 다른 프로그램에 선점되어 있습니다.'
+    }).show();
+  }
   if (!topmostShortcutOk) {
-    console.error('[전역 단축키] Control+Alt+Y 등록 실패 - 다른 프로그램이 이미 이 조합키를 쓰고 있을 수 있습니다.');
+    console.error('[전역 단축키] Control+Alt+Shift+F9 등록 실패 - 다른 프로그램이 이미 이 조합키를 쓰고 있을 수 있습니다.');
   }
 });
 app.on('window-all-closed', () => app.quit());
@@ -2153,7 +2164,7 @@ ipcMain.handle('toggle-yes24-topmost', async (_e, value) => {
 // ---- 사이트 미니 창 (콜로소 전용이 아니라, 아무 주소나 넣어서 쓸 수 있는 범용 기능) ----
 // 임베드가 막힌 사이트(setpose.com, 콜로소 등)나 그냥 항상 띄워두고 싶은 사이트를, 크롬을 탭/주소창
 // 없는 "앱 모드" 작은 창으로 열어서 화면 구석에 띄운다. 항상 위 고정은 이 창 자체가 아니라 전역
-// 단축키(Ctrl+Alt+Y, toggleFocusedWindowTopmost 참고)로 한다 - 어떤 사이트를 넣든 똑같이 동작한다.
+// 단축키(Ctrl+Alt+Shift+F9, toggleFocusedWindowTopmost 참고)로 한다 - 어떤 사이트를 넣든 똑같이 동작한다.
 const DEFAULT_CHROME_EXE = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 // 미니 창을 크로키앱/동영상 플레이어처럼 어두운 톤으로 보이게 하는 처리.
