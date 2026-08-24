@@ -321,7 +321,7 @@
           F9: 통과모드 켜기/끄기 (크로키·그리드 앱 공통)<br>
           G: 참고 이미지 표시/숨기기 (크로키·그리드 앱 공통)<br>
           Ctrl+Alt+U: 좌우반전 (크로키·그리드·OBJ 배치 뷰어·3D 뷰어·웹 임베드 미니창 공통)<br>
-          Ctrl+Alt+Y: 선택된 창 항상 위로 켜기/끄기 (모든 창 공통)
+          Ctrl+Alt+Shift+F9: 선택된 창 항상 위로 켜기/끄기 (모든 창 공통)
         </div>
         <div class="ql-row">
           <button class="ql-btn ql-main" data-url="https://ai-webtoon-studio.pages.dev">작가실</button>
@@ -356,7 +356,7 @@
              임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
         <div class="ql-row" style="margin-top:6px;">
           <input type="text" id="miniWinUrlInput" placeholder="https://... 주소 입력" title="탭/주소창 없는 작은 창으로 열 사이트 주소">
-          <button class="ql-btn ql-main" id="btnMiniWinOpen" title="위 주소를 작은 창으로 엽니다 (항상 위 고정은 Ctrl+Alt+Y)">미니창 열기</button>
+          <button class="ql-btn ql-main" id="btnMiniWinOpen" title="위 주소를 작은 창으로 엽니다 (항상 위 고정은 Ctrl+Alt+Shift+F9)">미니창 열기</button>
         </div>
       </div>
       </div> <!-- /#detailStaticDock -->
@@ -732,7 +732,7 @@ document.getElementById('btnMiniWinOpen').addEventListener('click', async () => 
 miniWinUrlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btnMiniWinOpen').click();
 });
-// 미니 창의 "항상 위"는 버튼이 아니라 전역 단축키(Ctrl+Alt+Y)로 처리한다 - main.js 참고.
+// 미니 창의 "항상 위"는 버튼이 아니라 전역 단축키(Ctrl+Alt+Shift+F9)로 처리한다 - main.js 참고.
 // 지금 포커스된 창(미니창이든, 다른 크롬 창이든, 다른 프로그램이든) 기준으로 그 순간 켜고 끈다.
 
 // 오른쪽 패널 시계 - detailScroll 내용(이미지 선택 여부)과 무관하게 항상 같은 자리에 떠 있음
