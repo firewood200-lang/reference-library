@@ -2268,7 +2268,7 @@ function positionNewMiniWindow(beforeHandles, x, y, w, h) {
   child.on('error', () => {}); // 실패해도 미니 창 자체는 이미 열려 있으니 조용히 무시
 }
 
-ipcMain.handle('open-mini-window', async (_e, url) => {
+ipcMain.handle('open-mini-window', async (_e, url, opts) => {
   if (!/^https?:\/\//i.test(url || '')) return { success: false, error: 'http:// 또는 https://로 시작하는 주소를 입력해 주세요' };
   const exePath = await resolveExePath('chromeExe', DEFAULT_CHROME_EXE, '크롬 실행 파일(chrome.exe)을 선택하세요');
   if (!exePath) return { success: false, error: '크롬 실행 파일 위치를 찾지 못함' };
@@ -2277,7 +2277,11 @@ ipcMain.handle('open-mini-window', async (_e, url) => {
     // (유튜브 등 가로형 콘텐츠에 맞는 약 530x430)로 바꾸고, 위치도 화면 구석이 아니라 레퍼런스
     // 라이브러리 창(mainWindow) 정중앙에 뜨도록 변경. 모니터 경계를 벗어나지 않게 clamp하는 방식은
     // 크로키 앱 등 다른 창들의 computeCenteredPosition과 동일하다.
-    const w = 530, h = 430;
+    // 2026-08-24: opts로 크기를 넘기지 않으면 기존 530x430 그대로(다른 버튼들 영향 없음). (참고:
+    // --force-device-scale-factor로 폭만 속이는 방법도 시도했으나, 크롬이 이미 켜져 있으면 새로
+    // 실행할 때 준 커맨드라인 옵션 자체가 통째로 무시되는 걸 확인해서 폐기함 - "AI 챗봇" 버튼은 그래서
+    // 이 크롬 앱모드 방식을 아예 쓰지 않고 별도의 open-reflib-chatbot-window(Electron 자체 창)로 뺐다.)
+    const w = (opts && opts.w) || 530, h = (opts && opts.h) || 430;
     const mb = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
     const cx = mb ? mb.x + mb.width / 2 : null;
     const cy = mb ? mb.y + mb.height / 2 : null;
@@ -2299,6 +2303,67 @@ ipcMain.handle('open-mini-window', async (_e, url) => {
     // --window-size/position은 크롬이 이미 켜져 있거나 같은 사이트를 예전에 연 적이 있으면 무시되므로,
     // 새로 생긴 창을 찾아 Win32 SetWindowPos로 크기/위치를 다시 한번 강제로 맞춘다(다크 타이틀바와 함께 처리).
     positionNewMiniWindow(beforeHandles, x, y, w, h); // 결과를 기다리지 않는다 - 실패해도 미니 창은 이미 정상적으로 열려 있다
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ---- 레퍼런스앱 관리자(AI 챗봇) 미니창 (2026-08-24) ----
+// 시행착오 기록(다음에 비슷한 걸 또 만들 때 참고할 것):
+// 1차: claude:// 딥링크로 Claude 데스크탑 앱 자체를 열려고 함 → 데스크탑 앱은 창이 하나뿐이라 사용자가
+//      쓰던 다른 Cowork 작업 창을 그대로 가로채버림(사용자 피드백) → 폐기.
+// 2차: 커스텀 MCP 서버 없이 open-mini-window(크롬 앱모드)로 claude.ai의 '레퍼런스 라이브러리 데이터
+//      폴더' Cowork 대화(cse_0179VHktyyQrivvWEVAqt5vC)를 그대로 열도록 바꿈 - 이 대화는 데스크탑 앱에서
+//      '컴퓨터(디바이스) 폴더 연결'로 레퍼런스 백업 폴더에 이미 연결해뒀고, 이 연결은 대화(세션) 단위로
+//      유지되어 독립된 브라우저 창/미니창으로 열어도 그대로 파일 접근이 된다(Claude-in-Chrome으로 직접
+//      확인: 하위 폴더 목록을 실제로 조회해 응답받음) - 이 부분(커스텀 MCP 불필요, device 폴더 연결 재사용)
+//      은 맞는 설계라 계속 유지함.
+//      그런데 claude.ai 채팅창은 CSS 뷰포트 폭이 좁으면(모바일 레이아웃 판정) Enter 키가 항상 줄바꿈만
+//      하고 전송을 안 하는 문제가 있음(전송 버튼 클릭은 정상). 530x430 미니창 폭이 그 기준보다 좁아서
+//      재현됨. 창을 그냥 넓히면(880x640) 해결되지만, 사용자가 "미니창인데 넓히면 미니창이 아니다"라고
+//      지적(타당함) - 폐기. --force-device-scale-factor로 물리 크기는 작게 두고 CSS 폭만 넓게 속이는
+//      방법도 시도했으나, 크롬이 이미 켜져 있으면(거의 항상 그렇다) 새로 실행할 때 준 커맨드라인 옵션
+//      자체가 통째로 무시된다는 걸 실사용으로 확인함(이건 위 open-mini-window의 --window-size/position이
+//      똑같은 이유로 무시돼서 Win32 SetWindowPos로 사후 보정하는 것과 동일한 원인 - 다만 화면배율은
+//      window-size와 달리 사후에 외부에서 보정할 Win32 API가 없다) - 폐기.
+// 3차(최종): 그래서 크롬을 아예 쓰지 않고, 이 Electron 앱 자신이 소유하는 BrowserWindow로 claude.ai를
+//      직접 띄운다. 우리가 프로세스를 직접 만드므로 "이미 켜진 인스턴스가 옵션을 무시하는" 문제 자체가
+//      없고, win.webContents.setZoomFactor()로 확대/축소가 확실히 먹는다 - 창은 진짜로 작게(530x430,
+//      기존 미니창들과 동일) 유지하면서 zoomFactor를 낮춰 CSS 폭만 넓게 인식시켜 Enter 전송을 켠다.
+//      대가로 글씨/버튼이 화면에서 조금 작게 보인다 - 사용자에게 트레이드오프를 미리 설명하고 확인받음.
+//      단, 이 창은 시스템 크롬과 로그인 세션(쿠키)을 공유하지 않는 별도의 세션(partition)이라 처음 한
+//      번은 로그인해야 한다 - 이후에는 partition이 디스크에 남아 있어서(userData 폴더 안) 계속 로그인
+//      유지됨. nodeIntegration은 절대 켜지 않는다(claude.ai는 우리 소유가 아닌 원격 페이지라서 Node API를
+//      노출하면 안 됨) - contextIsolation:true, nodeIntegration:false, preload 없음(기본값 그대로).
+let reflibChatbotWin = null;
+const REFLIB_CHATBOT_URL = 'https://claude.ai/cowork/cse_0179VHktyyQrivvWEVAqt5vC';
+const REFLIB_CHATBOT_ZOOM = 0.75; // CSS 폭 ≈ 530 / 0.75 ≈ 707 - 창 크기는 그대로, 배율만 사용자 요청으로 0.6→0.75 상향(2026-08-24). 이전에 실측으로 확인된 Enter 전송 성공 폭(880)보다 좁아서, 707에서도 Enter 전송이 되는지는 아직 확인 전.
+
+ipcMain.handle('open-reflib-chatbot-window', async () => {
+  try {
+    if (reflibChatbotWin && !reflibChatbotWin.isDestroyed()) {
+      reflibChatbotWin.show();
+      reflibChatbotWin.focus();
+      return { success: true };
+    }
+    const w = 530, h = 430;
+    const win = new BrowserWindow({
+      width: w, height: h, title: '레퍼런스앱 AI 챗봇',
+      ...(centeredPosOnMain(w, h) || {}),
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: 'persist:reflib-ai-chatbot'
+      }
+    });
+    win.setMenuBarVisibility(false);
+    const applyZoom = () => { try { win.webContents.setZoomFactor(REFLIB_CHATBOT_ZOOM); } catch {} };
+    win.webContents.on('did-finish-load', applyZoom);
+    win.webContents.on('dom-ready', applyZoom);
+    win.loadURL(REFLIB_CHATBOT_URL);
+    reflibChatbotWin = win;
+    win.on('closed', () => { if (reflibChatbotWin === win) reflibChatbotWin = null; });
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

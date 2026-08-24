@@ -265,7 +265,7 @@
   <div id="topbar">
     <button id="btnSelectRoot">라이브러리 열기</button>
     <span id="rootLabel">라이브러리를 선택하세요</span>
-    <input id="searchInput" type="text" placeholder="파일명 검색...">
+    <input id="searchInput" type="text" placeholder="파일명·태그 검색..." title="파일명 또는 태그에 포함된 단어로 검색합니다">
     <label id="recursiveToggle"><input type="checkbox" id="chkRecursive"> 하위 폴더 포함</label>
     <span id="thumbSizeBox">썸네일 크기 <input type="range" id="thumbSizeSlider" min="80" max="400" step="10"></span>
     <button id="btnImport">이미지 추가</button>
@@ -332,6 +332,7 @@
           <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/writing_studio_v2_7">Writing Studio</button>
           <button class="ql-btn" data-url="https://ai-webtoon-studio.pages.dev/Ai-Workflow">AI 워크플로우</button>
           <button class="ql-btn ql-main" id="btnQlLocalLLM" title="AnythingLLM(로컬 LLM)이 꺼져 있으면 켜고, 노션에 새로 쓰거나 수정한 내용을 자동으로 반영합니다 (몇 분 정도 걸릴 수 있습니다)">로컬LLM</button>
+          <button class="ql-btn ql-main" id="btnQlReflibChatbot" title="레퍼런스앱 관리자 프로젝트(태깅·검색·분류·소스 확인 전용 챗봇)를 작은 창으로 엽니다">AI 챗봇</button>
           <button class="ql-btn" id="btnQlWorkTimer">워크 타이머</button>
           <button class="ql-btn" id="btnQlClock">시계</button>
           <button class="ql-btn" id="btnQlStickyNotes">포스트잇</button>
@@ -512,6 +513,20 @@ document.getElementById('errorLogClear').addEventListener('click', (e) => {
 });
 document.querySelectorAll('.ql-btn[data-url]').forEach(btn => {
   btn.addEventListener('click', () => shell.openExternal(btn.dataset.url));
+});
+// 레퍼런스앱 관리자 프로젝트의 '레퍼런스 라이브러리 데이터 폴더' Cowork 대화를 연다.
+// 이 대화는 데스크탑 앱에서 컴퓨터(디바이스) 폴더 연결로 레퍼런스 백업 폴더에 이미 연결돼 있고, 그 연결은
+// 대화 단위로 유지되므로 독립된 창으로 열어도 그대로 파일 접근이 된다 - 커스텀 MCP 서버나 Claude 데스크탑
+// 앱 자체를 열 필요가 없다(2026-08-24, Claude-in-Chrome으로 실제 파일 목록 조회까지 확인함).
+// 크롬 앱모드(open-mini-window)가 아니라 이 앱 자신의 BrowserWindow(open-reflib-chatbot-window,
+// main.js)를 쓴다 - 크롬이 이미 켜져 있으면 창 크기·화면배율 옵션이 통째로 무시되는 문제 때문에(자세한
+// 시행착오는 main.js 주석 참고), 창을 직접 소유해서 zoomFactor를 확실하게 적용하기 위함. 창은 기존
+// 미니창들과 같은 크기(530x430)로 작게 유지되고, claude.ai가 인식하는 CSS 폭만 넓혀서(zoomFactor 축소)
+// Enter 전송을 켠다. 처음 한 번은 이 창 안에서 로그인해야 한다(시스템 크롬과 로그인 세션을 공유하지
+// 않는 별도 프로필이라서) - 이후로는 계속 로그인 유지됨.
+document.getElementById('btnQlReflibChatbot').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('open-reflib-chatbot-window');
+  if (!r.success) alert('AI 챗봇 열기 실패: ' + r.error);
 });
 // 워크 타이머/시계는 웹 링크가 아니라 로컬 exe라서 브라우저로 열지 않고 직접 실행한다
 document.getElementById('btnQlWorkTimer').addEventListener('click', async () => {
@@ -1966,11 +1981,20 @@ function renderTagCloud() {
   });
 }
 
+// 검색창 입력이 파일명 또는 태그(부분 일치) 중 하나라도 걸리면 통과시킨다.
+// 파일명 검색만 있던 것을 태그 검색까지 포함하도록 확장 (2026-08-24).
+function matchesSearch(img, query) {
+  if (!query) return true;
+  if (img.name.toLowerCase().includes(query)) return true;
+  const tags = data.tags[relKey(img.path)] || [];
+  return tags.some(t => t.toLowerCase().includes(query));
+}
+
 function currentImageList() {
   let list;
   if (currentSmart === 'ai-similar') {
     list = aiSimilarResults || [];
-    if (searchQuery) list = list.filter(img => img.name.toLowerCase().includes(searchQuery));
+    if (searchQuery) list = list.filter(img => matchesSearch(img, searchQuery));
     return list; // 유사도 순서를 그대로 유지 (최신순 정렬 적용 안 함)
   } else if (activeTag) {
     list = allImagesCache.filter(img => (data.tags[relKey(img.path)] || []).includes(activeTag));
@@ -1990,7 +2014,7 @@ function currentImageList() {
   } else {
     list = allImagesCache;
   }
-  if (searchQuery) list = list.filter(img => img.name.toLowerCase().includes(searchQuery));
+  if (searchQuery) list = list.filter(img => matchesSearch(img, searchQuery));
   // 최근에 추가/수정된 파일이 맨 위로 오도록 정렬 (새로 받은 이미지를 바로 찾을 수 있게)
   return list.slice().sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
 }
