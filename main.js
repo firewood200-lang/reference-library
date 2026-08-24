@@ -7,34 +7,17 @@ const net = require('net');
 const { spawn, spawnSync } = require('child_process');
 const os = require('os');
 const zlib = require('zlib'); // docx(zip) 안의 문서 XML 압축을 풀 때 씀 - 별도 라이브러리 설치 없이 내장 모듈만으로 처리
+// 태그/파일이동/폴더스캔 등 라이브러리 데이터 로직은 reflib-core.js로 분리되어 있다.
+// 이 모듈은 Electron API에 의존하지 않는 순수 node.js 코드라 나중에 만들 MCP 서버에서도 그대로 재사용한다
+// (레퍼런스앱 챗봇 설계 - 선행 리팩토링, 2026-08-24). main.js는 이 함수들을 ipcMain 핸들러로만 감싼다.
+const reflibCore = require('./reflib-core.js');
+const {
+  IMAGE_EXTS, MODEL_EXTS, DOC_EXTS, VIDEO_EXTS, EMBED_EXT, LINK_EXT, MINIWIN_EXT, SUPPORTED, DATA_FILE,
+  kindOf, scanTree, listImages,
+} = reflibCore;
 
 let mainWindow;
 let closeConfirmed = false; // 닫기 전 "전체 코드저장" 확인이 끝나서 실제로 닫아도 되는 상태인지
-// 파일 종류별 확장자 - 이미지/3D모델/문서를 모두 라이브러리에 표시
-const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-const MODEL_EXTS = ['.obj'];
-const DOC_EXTS = ['.pdf', '.txt', '.md', '.docx'];
-const VIDEO_EXTS = ['.mp4', '.webm', '.mov', '.m4v'];
-const EMBED_EXT = '.pinembed'; // 파일을 못 받아오는 웹 임베드(핀터레스트 등)를 가리키는 참조용 파일
-const LINK_EXT = '.weblink'; // 뉴스 기사 등 일반 웹 링크 - 본문을 추출해서 캐시해둔 참조용 파일
-// 2026-07-22: "미니창 열기"(임의 사이트를 작은 창으로 띄우는 기능)로 보던 화면을 라이브러리 항목으로
-// 남겨두는 참조용 파일. 핀터레스트/유튜브 전용인 .pinembed나, 기사 본문 추출용인 .weblink와 달리
-// 아무 사이트나 대상이라 자동으로 대표 이미지를 구할 방법이 없다 - 그래서 썸네일은 사용자가 직접
-// 파일 선택/붙여넣기로 지정해서 같이 저장한다({url, title, addedAt} JSON + 썸네일 캐시 이미지).
-const MINIWIN_EXT = '.miniwin';
-const SUPPORTED = [...IMAGE_EXTS, ...MODEL_EXTS, ...DOC_EXTS, ...VIDEO_EXTS, EMBED_EXT, LINK_EXT, MINIWIN_EXT];
-function kindOf(ext) {
-  ext = ext.toLowerCase();
-  if (IMAGE_EXTS.includes(ext)) return 'image';
-  if (MODEL_EXTS.includes(ext)) return 'model';
-  if (DOC_EXTS.includes(ext)) return 'doc';
-  if (VIDEO_EXTS.includes(ext)) return 'video';
-  if (ext === EMBED_EXT) return 'embed';
-  if (ext === LINK_EXT) return 'link';
-  if (ext === MINIWIN_EXT) return 'miniwin';
-  return 'other';
-}
-const DATA_FILE = '.reflib-data.json';
 const CONFIG_PATH = path.join(app.getPath('userData'), 'reflib-config.json');
 // 크로키 앱(항상 위 뷰어) 기본 위치 - 없으면 최초 1회 폴더 선택 다이얼로그로 물어봄
 const DEFAULT_CROQUIS_DIR = 'C:\\Users\\user\\Downloads\\ai-webtoon studio1.0\\croquis_player_v2\\croquis';
@@ -614,105 +597,15 @@ ipcMain.handle('select-library-root', async () => {
   return result.filePaths[0];
 });
 
-// ---- 폴더 트리 스캔 (폴더만, 재귀) ----
-// imageCount는 하위 폴더까지 전부 합친 총 개수(재귀), directCount는 그 폴더 안에 바로 있는 파일 개수
-function scanTree(dir, root) {
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return { name: path.basename(dir), relPath: path.relative(root, dir), children: [], imageCount: 0, directCount: 0 }; }
-  const children = [];
-  let directCount = 0;
-  for (const ent of entries) {
-    if (ent.name.startsWith('.')) continue;
-    const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) {
-      children.push(scanTree(full, root));
-    } else {
-      // 확장자 화이트리스트로 걸러내지 않고 폴더 안의 모든 파일을 센다 (문서 파일 등이 누락되지 않도록)
-      directCount++;
-    }
-  }
-  // 가나다/abc 순 정렬 (한글 로케일 기준 - 대소문자 구분 없이 자연스러운 순서로 비교)
-  children.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-  const childrenTotal = children.reduce((sum, c) => sum + c.imageCount, 0);
-  return { name: path.basename(dir), relPath: path.relative(root, dir), children, imageCount: directCount + childrenTotal, directCount };
-}
+// ---- 폴더 트리 스캔 / 이미지 목록 / 메타데이터 로드·저장 ----
+// 실제 로직은 reflib-core.js(scanTree/listImages/loadData/saveData)로 옮겨졌다. main.js는 IPC로 감싸기만 한다.
 ipcMain.handle('scan-folder-tree', (e, root) => scanTree(root, root));
-
-// ---- 특정 폴더의 이미지 목록 ----
-function listImages(dir, recursive) {
-  let out = [];
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-  for (const ent of entries) {
-    if (ent.name.startsWith('.')) continue;
-    const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) {
-      if (recursive) out = out.concat(listImages(full, true));
-    } else {
-      // 확장자 화이트리스트로 걸러내지 않고 모든 파일을 표시 (등록 안 된 문서/기타 파일도 'other'로 표시되어 최소한 보이고 열 수 있음)
-      const stat = fs.statSync(full);
-      const ext = path.extname(ent.name);
-      const item = { path: full, name: ent.name, size: stat.size, mtime: stat.mtimeMs, kind: kindOf(ext) };
-      // 웹 임베드 참조 파일은 실제 파일(이미지 등)이 아니라 {embedUrl, title} JSON이므로 같이 읽어서 붙여준다
-      if (ext.toLowerCase() === EMBED_EXT) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          item.embedUrl = meta.embedUrl;
-          item.embedTitle = meta.title;
-          item.sourceUrl = meta.sourceUrl;
-        } catch {}
-      }
-      // 웹 링크(기사 등) 참조 파일도 목록에는 가벼운 정보(제목/썸네일/요약)만 붙인다 - 본문 전체는 상세 패널에서 필요할 때만 읽는다
-      if (ext.toLowerCase() === LINK_EXT) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          item.linkUrl = meta.url;
-          item.linkTitle = meta.title;
-          item.linkImage = meta.image;
-          item.linkExcerpt = meta.excerpt;
-        } catch {}
-      }
-      // 미니창 항목 참조 파일도 {url, title} JSON이므로 같이 읽어서 붙여준다. 썸네일은 자동 소스가
-      // 없어(임의 사이트) 저장 시점에 사용자가 지정한 캐시 이미지를 그대로 쓴다 - 렌더러 쪽 ensureMiniwinThumbnail 참고.
-      if (ext.toLowerCase() === MINIWIN_EXT) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          item.miniwinUrl = meta.url;
-          item.miniwinTitle = meta.title;
-        } catch {}
-      }
-      // 텍스트/마크다운 파일도 그리드에서 무슨 내용인지 알 수 있게 앞부분만 살짝 읽어서 붙인다.
-      // 파일 전체를 읽으면 큰 텍스트 파일에서 느려질 수 있어, 앞쪽 300바이트만 부분적으로 읽는다.
-      if (ext.toLowerCase() === '.txt' || ext.toLowerCase() === '.md') {
-        try {
-          const fd = fs.openSync(full, 'r');
-          const buf = Buffer.alloc(300);
-          const bytesRead = fs.readSync(fd, buf, 0, 300, 0);
-          fs.closeSync(fd);
-          item.textExcerpt = buf.toString('utf-8', 0, bytesRead).replace(/�$/, '').replace(/\s+/g, ' ').trim();
-        } catch {}
-      }
-      out.push(item);
-    }
-  }
-  return out;
-}
 ipcMain.handle('list-images', (e, { root, folderPath, recursive }) => {
   const dir = folderPath || root;
   return listImages(dir, !!recursive);
 });
-
-// ---- 메타데이터(태그/메모/즐겨찾기) 로드/저장 ----
-ipcMain.handle('load-data', (e, root) => {
-  const p = path.join(root, DATA_FILE);
-  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); }
-  catch { return { user_id: 'default_user', version: 1, tags: {}, notes: {}, favorites: [], pinnedFolders: [] }; }
-});
-ipcMain.handle('save-data', (e, { root, data }) => {
-  const p = path.join(root, DATA_FILE);
-  fs.writeFileSync(p, JSON.stringify(data, null, 2));
-  return true;
-});
+ipcMain.handle('load-data', (e, root) => reflibCore.loadData(root));
+ipcMain.handle('save-data', (e, { root, data }) => reflibCore.saveData(root, data));
 
 // ---- 웹 임베드 참조(핀터레스트 등 - 파일로 못 받아오는 콘텐츠를 재생 링크만 저장) ----
 // 실제 이미지/동영상 파일이 아니라 {embedUrl, title, sourceUrl} 만 담은 작은 JSON 파일을 라이브러리 폴더 안에 남겨서,
@@ -1835,25 +1728,8 @@ ipcMain.on('start-native-drag', (e, filePathOrPaths) => {
 });
 
 // 중앙 그리드에서 파일을 왼쪽 폴더 트리로 드래그해서 옮기기 - 같은 이름 파일이 있으면 자동으로 "(1)" 등을 붙여 구분
-ipcMain.handle('move-files', (e, { paths: srcPaths, destDir }) => {
-  const moved = [];
-  const errors = [];
-  for (const src of srcPaths) {
-    try {
-      if (path.dirname(src) === destDir) continue; // 이미 그 폴더 안에 있으면 건너뜀
-      const ext = path.extname(src);
-      const stem = path.basename(src, ext);
-      let dest = path.join(destDir, stem + ext);
-      let n = 1;
-      while (fs.existsSync(dest)) { dest = path.join(destDir, `${stem} (${n})${ext}`); n++; }
-      fs.renameSync(src, dest);
-      moved.push({ from: src, to: dest });
-    } catch (err) {
-      errors.push({ path: src, error: err.message });
-    }
-  }
-  return { moved, errors };
-});
+// (실제 로직은 reflib-core.js의 moveFiles로 옮겨짐 - MCP 서버의 move_file도 이 함수를 그대로 재사용한다)
+ipcMain.handle('move-files', (e, { paths: srcPaths, destDir }) => reflibCore.moveFiles(srcPaths, destDir));
 
 // Ctrl+C / Ctrl+V로 파일 복사 - 원본은 그대로 두고 사본을 만든다. 같은 폴더에 붙여넣으면(복제) move-files와 같은
 // 규칙으로 "(1)", "(2)"... 를 자동으로 붙여 이름이 겹치지 않게 한다.

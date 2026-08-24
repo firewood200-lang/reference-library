@@ -441,6 +441,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
 const { pathToFileURL } = require('url');
+// 태그 저장 로직(추가/제거/전체 목록)은 reflib-core.js로 옮겨서 main.js·나중의 MCP 서버와 같은 코드를 쓴다.
+// (레퍼런스앱 챗봇 설계 - 선행 리팩토링, 2026-08-24)
+const reflibCore = require('./reflib-core.js');
 // ---- AI 이미지 유사 검색(신규, 별도 모듈) ----
 // 이 require 하나가 연결부의 전부다. 문제가 생기면 이 줄과 아래 관련 함수 몇 개만
 // 지우면 기존 앱으로 바로 복원된다. ai-search.js는 원본 데이터를 절대 건드리지 않는다.
@@ -1948,9 +1951,7 @@ document.querySelectorAll('.smart-item').forEach(el => {
 });
 
 function allTags() {
-  const set = new Set();
-  Object.values(data.tags).forEach(arr => arr.forEach(t => set.add(t)));
-  return Array.from(set).sort();
+  return reflibCore.allTags(data);
 }
 
 function renderTagCloud() {
@@ -2727,7 +2728,7 @@ function renderDetail() {
     chip.className = 'tag-chip';
     chip.innerHTML = escapeHtml(t) + ' <span class="x">×</span>';
     chip.querySelector('.x').onclick = () => {
-      data.tags[key] = (data.tags[key] || []).filter(x => x !== t);
+      reflibCore.removeTag(data, key, t);
       saveData(); renderDetail(); renderTagCloud(); updateSmartCounts();
     };
     tagListEl.appendChild(chip);
@@ -2736,8 +2737,7 @@ function renderDetail() {
   document.getElementById('tagInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.value.trim()) {
       const t = e.target.value.trim();
-      data.tags[key] = data.tags[key] || [];
-      if (!data.tags[key].includes(t)) data.tags[key].push(t);
+      reflibCore.addTag(data, key, t);
       e.target.value = '';
       saveData(); renderDetail(); renderTagCloud(); updateSmartCounts();
     }
