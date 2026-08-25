@@ -2091,7 +2091,7 @@ function renderGrid() {
     div.title = imgData.name || '';
     const isFav = (data.favorites || []).includes(relKey(imgData.path));
     if (kind === 'image') {
-      div.innerHTML = '<img draggable="true"><div class="fname">' + escapeHtml(formatBytes(imgData.size)) + '</div>' + (isFav ? '<div class="fav-badge">★</div>' : '');
+      div.innerHTML = '<img draggable="true"><div class="fname">' + escapeHtml(imgData.name) + '</div>' + (isFav ? '<div class="fav-badge">★</div>' : '');
     } else {
       // 웹 임베드/링크/미니창 항목은 실제 파일명(.pinembed/.weblink/.miniwin) 대신 저장할 때 붙인 제목을 보여준다.
       // 그 외(문서/영상/3D 모델 등 제목이 따로 없는 실제 파일)는 이미지와 마찬가지로 파일명 대신 용량을 보여준다 -
