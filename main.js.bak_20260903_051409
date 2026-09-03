@@ -89,14 +89,6 @@ const WEBTOON3D_URL = 'http://127.0.0.1:7860';
 const FLATCOLOR_DIR = 'D:\\AI-Workflow\\flatcolor';
 const FLATCOLOR_BAT = path.join(FLATCOLOR_DIR, '서버만실행.bat');
 const FLATCOLOR_URL = 'http://127.0.0.1:8790';
-// 이 버튼 전용 크롬 프로필(폴더가 없으면 크롬이 처음 실행 시 알아서 만든다). 실행.bat도
-// 자기 전용 프로필(flatcolor\.appwindow)을 따로 쓰는데, 그것과 일부러 다른 폴더를 쓴다 -
-// 두 진입 경로가 동시에 열릴 수 있어서 같은 프로필을 공유하면 나중에 연 쪽이 먼저 뜬
-// 프로필의 크롬에게 창 하나만 더 열라고 위임해버려(프로필당 인스턴스는 하나) 지금 고치는
-// 문제(창 크기가 다르게 나옴 / 닫아도 서버가 안 꺼짐)가 그대로 재현된다. 전용 폴더를 따로
-// 쓰면 두 경로 모두 매번 완전히 독립된 새 프로세스로 뜨므로, 창 크기·모양이 일치하고
-// 창을 닫을 때 서버도 같이 끄는 로직이 정확히 동작한다. 2026-09-03 추가.
-const FLATCOLOR_PROFILE_DIR = path.join(FLATCOLOR_DIR, '.appwindow_reflib');
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2543,33 +2535,10 @@ ipcMain.handle('open-flatcolor', async () => {
       `--app=${FLATCOLOR_URL}`,
       `--window-size=${w},${h}`,
       `--window-position=${x},${y}`,
-      `--user-data-dir=${FLATCOLOR_PROFILE_DIR}`,
-      '--disable-background-mode'
+      '--force-dark-mode',
+      '--enable-features=WebContentsForceDark'
     ], { detached: true, stdio: 'ignore' });
-    // 2026-09-03 수정: --user-data-dir 없이 크롬을 띄우면 이미 떠 있는 기본 프로필 크롬에게
-    // 창 하나만 더 열라고 위임하고 이 child 프로세스는 곧바로 끝나버려서 (1) window-size/
-    // window-position/force-dark-mode 같은 옵션이 무시되고(그래서 실행.bat으로 연 창과 크기가
-    // 달라 보였음) (2) 아래 'exit' 리스너도 "창을 닫을 때"가 아니라 "위임하고 곧장 끝날 때"
-    // 발동해버려 서버 자동 종료가 동작하지 않았다. 전용 프로필(FLATCOLOR_PROFILE_DIR)을 쓰면
-    // 완전히 독립된 새 프로세스가 뜨고, 그 프로세스가 곧 이 창의 수명과 일치하므로 종료
-    // 시점을 정확히 알 수 있다. --force-dark-mode는 실행.bat 쪽 창과 모양을 맞추기 위해
-    // 제거했다.
-    child.on('exit', () => {
-      // 실행.bat과 같은 방식: 이 창이 닫히면 포트 8790을 물고 있는 프로세스를 찾아 종료한다.
-      // 채색 작업이 진행 중이었다면 그 작업은 강제 종료되어 결과가 남지 않을 수 있다.
-      try {
-        const out = spawnSync('cmd.exe', ['/c', 'netstat -ano | findstr ":8790 "'], { encoding: 'utf8' });
-        const pids = new Set();
-        (out.stdout || '').split(/\r?\n/).forEach((line) => {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (/^\d+$/.test(pid) && pid !== '0') pids.add(pid);
-        });
-        pids.forEach((pid) => spawnSync('taskkill', ['/PID', pid, '/T', '/F']));
-      } catch (e) {
-        // 서버 종료 실패는 무시 - 다음에 밑색 버튼을 누르면 살아있는 서버를 그대로 재사용한다.
-      }
-    });
+    child.unref();
     positionNewMiniWindow(beforeHandles, x, y, w, h);
     return { success: true };
   } catch (err) {

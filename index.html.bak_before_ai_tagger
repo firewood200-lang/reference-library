@@ -284,8 +284,6 @@
       <button id="btnAiTextSearch" title="한글 문장으로 이미지를 검색합니다 (AI, 인덱싱된 이미지 대상)">🔎 AI 검색</button>
       <button id="btnAiIndex" title="현재 라이브러리에서 아직 AI 인덱싱 안 된 이미지를 인덱싱합니다">🔄 AI 인덱싱 실행</button>
       <span id="aiIndexStatus" style="opacity:.75;"></span>
-      <button id="btnAiTag" title="레퍼런스 파일들을 로컬 LLM(Ollama)이 보고 파일명과 태그를 자동으로 채웁니다. 이미 태그가 있는 파일은 건너뜁니다. 실행 중 다시 누르면 중지합니다.">🏷 AI 이름+태그</button>
-      <span id="aiTagStatus" style="opacity:.75;"></span>
     </span>
   </div>
   <div id="main">
@@ -425,24 +423,6 @@
     <div id="aiIndexOverlayText" style="font-size:13px; margin-bottom:14px;">준비 중...</div>
     <div style="text-align:right;">
       <button id="aiIndexOverlayClose" style="display:none;">확인</button>
-    </div>
-  </div>
-</div>
-
-<!-- AI 이름+태그 자동 작업 진행 상태 오버레이(신규, 평소엔 숨김) - aiIndexOverlay와 동일한 패턴 -->
-<div id="aiTagOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9999; align-items:center; justify-content:center;">
-  <div style="background:#20222a; border:1px solid #3a3d47; border-radius:10px; padding:24px 28px; min-width:380px; color:#eee; font-family:'Malgun Gothic',system-ui,sans-serif;">
-    <div style="font-size:15px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-      <span>🏷 AI 이름+태그 작업 중</span>
-      <span id="aiTagElapsed" style="font-size:13px; color:#8fc; font-variant-numeric:tabular-nums;">0초</span>
-    </div>
-    <div style="background:#3a3d47; border-radius:6px; overflow:hidden; height:16px; margin:10px 0 8px;">
-      <div id="aiTagBar" style="background:#4a90d9; height:100%; width:0%; transition:width .2s;"></div>
-    </div>
-    <div id="aiTagOverlayText" style="font-size:13px; margin-bottom:14px;">준비 중...</div>
-    <div style="text-align:right; display:flex; justify-content:flex-end; gap:8px;">
-      <button id="aiTagStopBtn">중지</button>
-      <button id="aiTagOverlayClose" style="display:none;">확인</button>
     </div>
   </div>
 </div>
@@ -2495,101 +2475,6 @@ async function runAiIndexing() {
 }
 document.getElementById('aiIndexOverlayClose').onclick = () => {
   document.getElementById('aiIndexOverlay').style.display = 'none';
-};
-
-// ---- AI 이름+태그 자동 작업 (신규, 별도 모듈 ai-tagger.js) ----
-// ai-search.js와 같은 원칙: 이 연결부 몇 줄만 지우면 기존 앱으로 바로 복원된다.
-// ai-tagger.js는 reflib-core.js(setTags/saveData)를 그대로 써서 .reflib-data.json 형식을 유지하고,
-// 이미 태그가 있는 파일은 건드리지 않는다(완료 표시로 태그 유무를 사용).
-let aiTagger = null;
-try { aiTagger = require('./ai-tagger.js'); } catch (err) { console.error('ai-tagger.js 로드 실패:', err.message); }
-
-let aiTaggingRunning = false;
-let aiTaggingStopRequested = false;
-
-async function runAiTagging() {
-  if (!aiTagger) { alert('AI 이름+태그 모듈을 불러오지 못했습니다.'); return; }
-  if (!root) { alert('먼저 라이브러리를 선택하세요.'); return; }
-
-  const btn = document.getElementById('btnAiTag');
-  const status = document.getElementById('aiTagStatus');
-
-  if (aiTaggingRunning) {
-    // 실행 중에 같은 버튼을 다시 누르면 "중지 요청"으로 동작한다.
-    aiTaggingStopRequested = true;
-    status.textContent = '중지 요청됨... (처리 중인 이미지까지 끝내고 멈춥니다)';
-    return;
-  }
-
-  const reachable = await aiTagger.isOllamaReachable();
-  if (!reachable) {
-    alert('로컬 Ollama(127.0.0.1:11434)에 연결할 수 없습니다.\nOllama 앱이 켜져 있고 ' + aiTagger.DEFAULT_MODEL + ' 모델이 받아져 있는지 확인해주세요.');
-    return;
-  }
-  if (!confirm(
-    '현재 라이브러리에서 태그가 없는 파일을 찾아 로컬 LLM(' + aiTagger.DEFAULT_MODEL + ')이 보고 파일명과 태그를 자동으로 채웁니다.\n' +
-    '이미 태그가 있는 파일은 건너뜁니다. 파일명이 실제로 바뀌니 신중하게 시작해주세요.\n' +
-    '실행 중 이 버튼을 다시 누르면 중지할 수 있습니다(처리 중인 이미지까지는 끝냅니다).\n\n진행할까요?'
-  )) return;
-
-  aiTaggingRunning = true;
-  aiTaggingStopRequested = false;
-  const overlay = document.getElementById('aiTagOverlay');
-  const bar = document.getElementById('aiTagBar');
-  const overlayText = document.getElementById('aiTagOverlayText');
-  const elapsedEl = document.getElementById('aiTagElapsed');
-  const closeBtn = document.getElementById('aiTagOverlayClose');
-
-  const startedAt = Date.now();
-  const tick = () => { elapsedEl.textContent = Math.floor((Date.now() - startedAt) / 1000) + '초'; };
-  tick();
-  const timer = setInterval(tick, 1000);
-
-  btn.textContent = '⏹ AI 이름+태그 중지';
-  closeBtn.style.display = 'none';
-  bar.style.width = '0%';
-  overlayText.textContent = '준비 중...';
-  overlay.style.display = 'flex';
-  status.textContent = '작업 준비 중...';
-
-  try {
-    const result = await aiTagger.tagLibrary(root, {
-      onProgress: (done, total, label) => {
-        const pct = total ? Math.round((done / total) * 100) : 0;
-        bar.style.width = pct + '%';
-        overlayText.textContent = `${done} / ${total}  (${pct}%) - ${label || ''}`;
-        status.textContent = `AI 태깅 중... ${done}/${total}`;
-      },
-      shouldStop: () => aiTaggingStopRequested,
-    });
-    bar.style.width = '100%';
-    const stoppedMsg = result.stopped ? ' (중지됨)' : '';
-    overlayText.textContent = `완료${stoppedMsg}: ${result.tagged}/${result.total} 처리 (실패 ${result.failed})`;
-    status.textContent = `완료${stoppedMsg}: ${result.tagged}/${result.total} (실패 ${result.failed})`;
-    // 파일명/태그가 디스크에서 바뀌었으니 main 프로세스가 들고 있는 데이터도 다시 읽어와 화면을 갱신한다.
-    data = await ipcRenderer.invoke('load-data', root);
-    await refreshTreeAndImages();
-  } catch (err) {
-    overlayText.textContent = '오류: ' + err.message;
-    status.textContent = 'AI 태깅 오류';
-  } finally {
-    clearInterval(timer);
-    tick();
-    aiTaggingRunning = false;
-    aiTaggingStopRequested = false;
-    btn.textContent = '🏷 AI 이름+태그';
-    closeBtn.style.display = 'inline-block';
-  }
-}
-document.getElementById('btnAiTag').onclick = runAiTagging;
-document.getElementById('aiTagStopBtn').onclick = () => {
-  if (aiTaggingRunning) {
-    aiTaggingStopRequested = true;
-    document.getElementById('aiTagStatus').textContent = '중지 요청됨...';
-  }
-};
-document.getElementById('aiTagOverlayClose').onclick = () => {
-  document.getElementById('aiTagOverlay').style.display = 'none';
 };
 
 function iconForKind(kind) {
