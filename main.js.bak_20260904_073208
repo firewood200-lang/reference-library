@@ -79,14 +79,6 @@ const HUNYUAN_MV_URL = 'http://127.0.0.1:8080';
 const WEBTOON3D_DIR = 'D:\\AI-Workflow';
 const WEBTOON3D_BAT = path.join(WEBTOON3D_DIR, 'webtoon_3d_app_start.bat');
 const WEBTOON3D_URL = 'http://127.0.0.1:7860';
-// 2026-09-04: 이 창을 닫아도 뒤의 서버(7860/8080/8081)가 안 꺼지던 문제를, 밑색(flatcolor)
-// 버튼과 똑같은 방식으로 고쳤다 - 전용 프로필 없이 크롬을 띄우면 이미 떠 있는 기본 프로필
-// 크롬에게 창 하나만 더 열라고 위임해버려서 이 child 프로세스가 곧장 끝나버리고, 그러면
-// 아래 'exit' 리스너도 "창을 닫을 때"가 아니라 "위임하고 곧장 끝날 때" 발동해서 서버 자동
-// 종료가 동작하지 않는다. 전용 프로필(WEBTOON3D_PROFILE_DIR)을 쓰면 완전히 독립된 새
-// 프로세스가 뜨고, 그 프로세스의 수명이 곧 이 창의 수명과 일치하므로 종료 시점을 정확히
-// 알 수 있다.
-const WEBTOON3D_PROFILE_DIR = path.join(WEBTOON3D_DIR, '.appwindow_reflib');
 // 밑색(flatcolor, AI 보조 선화 채색) 앱 - ComfyUI/웹툰3D와 같은 "서버 상태 확인 -> 필요하면
 // 켜기 -> 창 열기" 패턴. server.py가 0.0.0.0으로 열려 있어 폰(Tailscale)에서도 그대로
 // 접속되므로, 이 버튼이 서버를 확실히 띄워주기만 하면 모바일 접속용으로도 충분하다.
@@ -2675,34 +2667,10 @@ ipcMain.handle('open-webtoon3d', async () => {
       `--app=${WEBTOON3D_URL}`,
       `--window-size=${w},${h}`,
       `--window-position=${x},${y}`,
-      `--user-data-dir=${WEBTOON3D_PROFILE_DIR}`,
-      '--disable-background-mode'
+      '--force-dark-mode',
+      '--enable-features=WebContentsForceDark'
     ], { detached: true, stdio: 'ignore' });
-    // 2026-09-04: force-dark-mode/WebContentsForceDark 플래그를 뺐다 - 위쪽(2197줄 근처)
-    // 주석에 이미 적혀 있듯 이 플래그들은 대체로 효과가 없고(거의 항상 무시됨), 밑색
-    // 버튼이 실제로 검증된 조합(--user-data-dir + --disable-background-mode)과 최대한
-    // 똑같이 맞춰서 창을 닫을 때 서버가 안 꺼지는 문제의 변수를 줄였다.
-    child.on('exit', () => {
-      // 이 창이 닫히면 웹툰 3D 관련 포트(7860 웹앱, 8080 Hunyuan-2mv, 8081 Hunyuan-2.1)를
-      // 물고 있는 프로세스를 모두 찾아 종료한다. 작업이 진행 중이었다면 강제 종료되어
-      // 결과가 남지 않을 수 있다. (flatcolor 버튼과 동일한 방식)
-      try {
-        const ports = ['7860', '8080', '8081'];
-        const pids = new Set();
-        for (const port of ports) {
-          const out = spawnSync('cmd.exe', ['/c', `netstat -ano | findstr ":${port} "`], { encoding: 'utf8' });
-          (out.stdout || '').split(/\r?\n/).forEach((line) => {
-            const parts = line.trim().split(/\s+/);
-            const pid = parts[parts.length - 1];
-            if (/^\d+$/.test(pid) && pid !== '0') pids.add(pid);
-          });
-        }
-        pids.forEach((pid) => spawnSync('taskkill', ['/PID', pid, '/T', '/F']));
-      } catch (e) {
-        // 서버 종료 실패는 무시 - 다음에 웹툰 3D 버튼을 누르면 살아있는 서버를 그대로
-        // 재사용하거나 새로 켠다.
-      }
-    });
+    child.unref();
     positionNewMiniWindow(beforeHandles, x, y, w, h);
     return { success: true };
   } catch (err) {
