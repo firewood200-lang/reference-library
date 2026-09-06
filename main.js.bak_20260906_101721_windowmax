@@ -144,12 +144,6 @@ function createWindow() {
     frame: false, // 회색 기본 제목표시줄/메뉴바 대신 index.html 안의 커스텀 타이틀바로 통일된 디자인을 준다
     webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
   });
-  // (2026-09-06, 사용자 실측 -- "또 창을 조정해야 되잖아") 위 width/height(1400x900)는
-  // 화면 크기와 무관한 고정값이라, 화면이 그보다 크면 매번 창을 손으로 늘려야 했다.
-  // 생성 직후 maximize()를 호출해 실제 작업영역 크기에 맞춰 뜨게 한다 -- 이미 있는
-  // 커스텀 타이틀바의 최대화/복원 토글(window:toggle-maximize, maximize/unmaximize
-  // 이벤트 리스너)과 그대로 호환된다.
-  mainWindow.maximize();
   // 상세 패널 안의 웹 임베드 미리보기(iframe)도 이 창의 UA를 그대로 쓰므로, 유튜브 등이 낯선 UA를 다르게
   // 취급하지 않도록 데스크톱 크롬 UA로 맞춰둔다.
   mainWindow.webContents.setUserAgent(DESKTOP_CHROME_UA);
@@ -2217,34 +2211,6 @@ const DEFAULT_CHROME_EXE = 'C:\\Program Files\\Google\\Chrome\\Application\\chro
 // position으로 지정한 좌표에 뜬다는 보장이 없다(실제로 이 문제로 처음 버전은 타이틀바를 못 찾았다).
 // 그래서 "새 창을 열기 전/후의 크롬 창 목록을 비교해서 새로 생긴 것"을 찾는 방식으로 바꿨다 - 창이
 // 어디에 뜨든 상관없이 정확히 찾는다.
-// (2026-09-06, 사용자 실측 -- "레퍼런스앱 앱링크들이 앱들을 수정한 뒤에 열면
-// 수정한 UI 등을 반영하지 않는 문제") 전용 --user-data-dir 프로필(밑색·웹툰 3D)을
-// 쓰는 앱 링크는, 그 프로필을 물고 있는 크롬 프로세스가 이미 떠 있으면 새로 실행해도
-// 진짜 새 프로세스가 뜨는 게 아니라 기존 프로세스에 "창 하나 열어줘"라고 위임만
-// 되어(위 listChromeWindowHandles 주석에 이미 나오는 크롬의 알려진 동작) 그 사이에
-// 고친 코드/화면이 반영되지 않는 문제가 있었다. 크롬을 새로 띄우기 직전에 그 프로필을
-// 물고 있는 기존 chrome.exe를 찾아 먼저 강제 종료해서, 매번 확실히 새 프로세스로
-// 뜨게 한다(경로에 특수문자가 있어도 안전하도록 커맨드라인 비교값은 환경변수로
-// 넘긴다 -- PowerShell 문자열 이스케이프를 피하기 위함).
-function killChromeUsingProfile(profileDir) {
-  return new Promise((resolve) => {
-    const psScript = [
-      '$procs = Get-CimInstance Win32_Process -Filter "Name=\'chrome.exe\'"',
-      'foreach ($p in $procs) {',
-      '  if ($p.CommandLine -and $p.CommandLine.Contains($env:REFLIB_KILL_PROFILE)) {',
-      '    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue',
-      '  }',
-      '}'
-    ].join('\n');
-    const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
-      windowsHide: true,
-      env: Object.assign({}, process.env, { REFLIB_KILL_PROFILE: profileDir })
-    });
-    child.on('close', () => resolve());
-    child.on('error', () => resolve());
-  });
-}
-
 function listChromeWindowHandles() {
   return new Promise((resolve) => {
     const psScript = [
@@ -2580,7 +2546,6 @@ ipcMain.handle('open-flatcolor', async () => {
     let y = mb ? Math.round(cy - h / 2) : Math.round(work.y + (work.height - h) / 2);
     x = Math.max(work.x, Math.min(x, work.x + work.width - w));
     y = Math.max(work.y, Math.min(y, work.y + work.height - h));
-    await killChromeUsingProfile(FLATCOLOR_PROFILE_DIR);
     const beforeHandles = await listChromeWindowHandles();
     const child = spawn(exePath, [
       `--app=${FLATCOLOR_URL}`,
@@ -2705,7 +2670,6 @@ ipcMain.handle('open-webtoon3d', async () => {
     let y = mb ? Math.round(cy - h / 2) : Math.round(work.y + (work.height - h) / 2);
     x = Math.max(work.x, Math.min(x, work.x + work.width - w));
     y = Math.max(work.y, Math.min(y, work.y + work.height - h));
-    await killChromeUsingProfile(WEBTOON3D_PROFILE_DIR);
     const beforeHandles = await listChromeWindowHandles();
     const child = spawn(exePath, [
       `--app=${WEBTOON3D_URL}`,
