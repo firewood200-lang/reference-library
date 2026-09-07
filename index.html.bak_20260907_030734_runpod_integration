@@ -351,7 +351,6 @@
           </button>
           <button class="ql-btn" id="btnQlPureref">PureRef</button>
           <button class="ql-btn" id="btnQlComfyUI" title="ComfyUI 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다 (최대 1분 정도 걸릴 수 있음)">ComfyUI 워크플로우</button>
-          <button class="ql-btn" id="btnQlComfyUIRunpodSetup" title="ComfyUI를 RunPod 클라우드 Pod으로 연결/해제합니다 (API 키·Pod ID 설정) - 회사 PC 없이 클라우드 GPU로 돌릴 때 사용">☁️</button>
           <button class="ql-btn ql-main" id="btnQlPentouch" title="펜터치 전용 앱 - LoRA(mypenink)+ControlNet(MistoLine) 워크플로우를 컷번호/저장폴더/세부 스탯까지 직접 조절할 수 있는 화면으로 엽니다">펜터치</button>
           <button class="ql-btn ql-main" id="btnQlWebtoon3d" title="웹툰 3D 참고용 메쉬 생성 앱 - Hunyuan3D-2mv 서버와 webtoon 웹앱이 꺼져 있으면 순서대로 자동으로 켠 뒤 창을 엽니다 (모델 로딩 때문에 최대 몇 분 걸릴 수 있음)">웹툰 3D</button>
           <button class="ql-btn ql-main" id="btnQlFlatcolor" title="밑색(AI 보조 선화 채색) 앱 - 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다. 서버가 0.0.0.0으로 열리므로 폰(Tailscale)에서도 그대로 접속할 수 있습니다">밑색</button>
@@ -589,33 +588,6 @@ document.getElementById('btnQlComfyUI').addEventListener('click', async (ev) => 
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
-});
-// ComfyUI를 RunPod 클라우드 Pod으로 연결/해제하는 설정 - 2026-09-07 추가.
-// 기존 로컬 실행 방식(위 btnQlComfyUI 핸들러, main.js의 open-comfyui)은 전혀 건드리지 않고,
-// reflib-config.json의 runpod 항목만 추가/변경한다. 다시 이 버튼을 눌러 '로컬로 되돌리기'를
-// 선택하면 원래 로컬 bat 실행 방식으로 즉시 돌아간다.
-document.getElementById('btnQlComfyUIRunpodSetup').addEventListener('click', async () => {
-  const cfg = (await ipcRenderer.invoke('get-config')) || {};
-  const cur = (cfg.runpod && cfg.runpod.mode && cfg.runpod.mode.comfyui) || 'local';
-  if (cur === 'runpod') {
-    if (confirm('현재 ComfyUI가 RunPod 클라우드로 연결되어 있습니다.\n로컬 실행 방식으로 되돌릴까요?')) {
-      cfg.runpod = cfg.runpod || {};
-      cfg.runpod.mode = Object.assign({}, cfg.runpod.mode, { comfyui: 'local' });
-      await ipcRenderer.invoke('set-config', cfg);
-      alert('로컬 실행 방식으로 되돌렸습니다.');
-    }
-    return;
-  }
-  const apiKey = prompt('RunPod API 키를 입력하세요 (RunPod > Credentials > API Keys):', (cfg.runpod && cfg.runpod.apiKey) || '');
-  if (!apiKey) return;
-  const podId = prompt('ComfyUI Pod ID를 입력하세요 (RunPod > Pods 목록에서 확인):', (cfg.runpod && cfg.runpod.pods && cfg.runpod.pods.comfyui) || '');
-  if (!podId) return;
-  cfg.runpod = cfg.runpod || {};
-  cfg.runpod.apiKey = apiKey.trim();
-  cfg.runpod.mode = Object.assign({}, cfg.runpod.mode, { comfyui: 'runpod' });
-  cfg.runpod.pods = Object.assign({}, cfg.runpod.pods, { comfyui: podId.trim() });
-  await ipcRenderer.invoke('set-config', cfg);
-  alert('RunPod 연결 설정 완료. 이제 "ComfyUI 워크플로우" 버튼을 누르면 클라우드 Pod을 사용합니다.');
 });
 document.getElementById('btnQlPentouch').addEventListener('click', async (ev) => {
   const btn = ev.currentTarget;

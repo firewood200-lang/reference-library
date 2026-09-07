@@ -49,63 +49,6 @@ const DEFAULT_OBJPLACER_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon stu
 const COMFYUI_DIR = 'D:\\AI-Workflow\\ComfyUI';
 const COMFYUI_BAT = path.join(COMFYUI_DIR, 'ComfyUI실행.bat');
 const COMFYUI_URL = 'http://127.0.0.1:8188';
-
-// ---- RunPod 클라우드 Pod 제어 (2026-09-07 추가) ----
-// 회사 PC가 사라지면서 GPU가 필요한 워크플로우를 RunPod Community Cloud로 옮기기 위해 추가.
-// 기존 로컬 실행 방식(위 COMFYUI_BAT 등)은 전혀 건드리지 않고, reflib-config.json의
-// runpod.mode.<서비스명>이 'runpod'일 때만 아래 경로를 타도록 만들었다. 나중에 로컬 GPU를
-// 다시 마련하면 ☁️ 버튼으로 mode를 'local'로 되돌리기만 하면 코드 변경 없이 원래대로 동작한다.
-const RUNPOD_API_BASE = 'https://rest.runpod.io/v1';
-
-function getRunpodConfig() {
-  const cfg = getConfig();
-  return cfg.runpod || { apiKey: '', mode: {}, pods: {} };
-}
-
-// RunPod REST API 호출 공통 함수 - Node 내장 https 모듈만 사용(별도 패키지 설치 없이 동작).
-function runpodApiRequest(pathSuffix, method) {
-  return new Promise((resolve, reject) => {
-    const apiKey = getRunpodConfig().apiKey;
-    if (!apiKey) { reject(new Error('RunPod API 키가 설정되지 않았습니다.')); return; }
-    const req = https.request(RUNPOD_API_BASE + pathSuffix, {
-      method: method || 'GET',
-      headers: { 'Authorization': 'Bearer ' + apiKey }
-    }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(body)); } catch { resolve({}); }
-      });
-    });
-    req.on('error', reject);
-    req.end();
-  });
-}
-function getPodStatus(podId) { return runpodApiRequest('/pods/' + podId, 'GET'); }
-function startPod(podId) { return runpodApiRequest('/pods/' + podId + '/start', 'POST'); }
-function stopPod(podId) { return runpodApiRequest('/pods/' + podId + '/stop', 'POST'); }
-function buildRunpodProxyUrl(podId, port) { return 'https://' + podId + '-' + port + '.proxy.runpod.net'; }
-
-// RunPod Pod을 켜고(꺼져 있으면), 프록시 주소가 실제로 응답할 때까지 기다린다.
-// port: 그 서비스가 Pod 안에서 쓰는 포트(ComfyUI 템플릿은 3000번을 노출한다).
-async function ensureRunpodServiceReady(podId, port, maxWaitMs) {
-  const status = await getPodStatus(podId);
-  if (status.desiredStatus !== 'RUNNING') {
-    await startPod(podId);
-  }
-  const url = buildRunpodProxyUrl(podId, port);
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    const alive = await new Promise((resolve) => {
-      const req = https.get(url, { timeout: 3000 }, (res) => { res.resume(); resolve(true); });
-      req.on('error', () => resolve(false));
-      req.on('timeout', () => { req.destroy(); resolve(false); });
-    });
-    if (alive) return url;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return null;
-}
 // AnythingLLM(로컬 LLM 데스크톱 앱) - 켜져 있는지 확인해서 꺼져 있으면 켜고, 뜰 때까지 기다린 뒤
 // 노션 동기화까지 이어서 실행하는 용도. 2026-08-23 추가. 설치 위치를 몰라서 기본 경로가 없으면
 // (다른 exe 버튼들과 마찬가지로) 최초 1회 파일 선택 다이얼로그로 물어보고 그 다음부터는 기억한다.
@@ -192,16 +135,7 @@ function reflibCenterArg() {
 }
 
 function createWindow() {
-  // (2026-09-06, 사용자 실측 -- "레퍼런스앱도 창 크기가 너무 크게 떠. 줄이는 과정을
-  // 반복하고 있어") 이전엔 여기서 항상 maximize()를 불러 매번 화면 전체로 띄웠는데,
-  // 그러면 사용자가 원하는 크기로 줄여놔도 다음 실행 때 다시 전체 화면이 되어버렸다.
-  // reflib-config.json(getConfig/setConfig, 기존에 '마지막 라이브러리 경로' 등을
-  // 저장하던 파일)에 windowBounds를 같이 저장해뒀다가, 있으면 그 크기/위치로 창을
-  // 만들고 없으면(정말 처음 실행) 예전처럼 maximize()로 시작한다. 밑색/웹툰3D
-  // 전용 창도 같은 방식(사용자가 조절한 크기를 기억)으로 맞춰뒀다.
-  const _cfg0 = getConfig();
-  const _wb = _cfg0.windowBounds;
-  const winOpts = {
+  mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 480,
@@ -209,52 +143,21 @@ function createWindow() {
     backgroundColor: '#17181c',
     frame: false, // 회색 기본 제목표시줄/메뉴바 대신 index.html 안의 커스텀 타이틀바로 통일된 디자인을 준다
     webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
-  };
-  if (_wb && Number.isFinite(_wb.width) && Number.isFinite(_wb.height)) {
-    winOpts.width = _wb.width;
-    winOpts.height = _wb.height;
-    if (Number.isFinite(_wb.x) && Number.isFinite(_wb.y)) {
-      winOpts.x = _wb.x;
-      winOpts.y = _wb.y;
-    }
-  }
-  mainWindow = new BrowserWindow(winOpts);
-  if (_wb ? _wb.maximized : true) {
-    // 저장된 기록이 최대화 상태였거나, 저장된 기록 자체가 없는(정말 처음 실행) 경우만
-    // maximize() -- 저장된 기록이 있는데 최대화가 아니었다면 위에서 준 winOpts.width/
-    // height/x/y 그대로 둔다.
-    mainWindow.maximize();
-  }
+  });
+  // (2026-09-06, 사용자 실측 -- "또 창을 조정해야 되잖아") 위 width/height(1400x900)는
+  // 화면 크기와 무관한 고정값이라, 화면이 그보다 크면 매번 창을 손으로 늘려야 했다.
+  // 생성 직후 maximize()를 호출해 실제 작업영역 크기에 맞춰 뜨게 한다 -- 이미 있는
+  // 커스텀 타이틀바의 최대화/복원 토글(window:toggle-maximize, maximize/unmaximize
+  // 이벤트 리스너)과 그대로 호환된다.
+  mainWindow.maximize();
   // 상세 패널 안의 웹 임베드 미리보기(iframe)도 이 창의 UA를 그대로 쓰므로, 유튜브 등이 낯선 UA를 다르게
   // 취급하지 않도록 데스크톱 크롬 UA로 맞춰둔다.
   mainWindow.webContents.setUserAgent(DESKTOP_CHROME_UA);
   mainWindow.loadFile('index.html');
 
-  // (2026-09-06) 크기/위치/최대화 여부가 바뀔 때마다 잠깐 뒤(500ms, 드래그 중 매
-  // 프레임 디스크에 쓰지 않도록) reflib-config.json에 저장해서 다음 실행에 이어지게
-  // 한다. getNormalBounds()를 쓰는 건 최대화된 채로 저장해버리면 다음에 '복원'
-  // 눌렀을 때 크기가 이상해지기 때문이다.
-  let _persistTimer = null;
-  function _persistWindowBounds() {
-    try {
-      const c = getConfig();
-      const nb = mainWindow.getNormalBounds ? mainWindow.getNormalBounds() : mainWindow.getBounds();
-      c.windowBounds = { width: nb.width, height: nb.height, x: nb.x, y: nb.y, maximized: mainWindow.isMaximized() };
-      setConfig(c);
-    } catch (e) {
-      // 창이 이미 파괴됐거나 파일 쓰기가 잠깐 실패해도 무시 -- 다음 변경 때 다시 시도된다.
-    }
-  }
-  function _scheduleWindowBoundsPersist() {
-    clearTimeout(_persistTimer);
-    _persistTimer = setTimeout(_persistWindowBounds, 500);
-  }
-  mainWindow.on('resize', _scheduleWindowBoundsPersist);
-  mainWindow.on('move', _scheduleWindowBoundsPersist);
-
   // 최대화/복원 시 커스텀 타이틀바의 □/⧉ 아이콘을 맞춰 바꿔주기 위해 렌더러에 상태를 알려준다
-  mainWindow.on('maximize', () => { mainWindow.webContents.send('window:maximize-changed', true); _persistWindowBounds(); });
-  mainWindow.on('unmaximize', () => { mainWindow.webContents.send('window:maximize-changed', false); _persistWindowBounds(); });
+  mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximize-changed', true));
+  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximize-changed', false));
 
   // 닫기 직전에 "전체 코드저장 하시겠습니까?" 확인창을 띄우기 위해, 실제 닫기를 한 번 막고 렌더러에
   // 알려준다. 렌더러가 confirm()을 띄운 뒤 (저장하든 안 하든) window:confirm-close를 호출해주면
@@ -2586,34 +2489,19 @@ async function ensurePentouchWebServer() {
 }
 ipcMain.handle('open-comfyui', async () => {
   try {
-    const runpodCfg = getRunpodConfig();
-    const useRunpodComfyUI = !!(runpodCfg.mode && runpodCfg.mode.comfyui === 'runpod');
-    let comfyuiUrl = COMFYUI_URL;
-    if (useRunpodComfyUI) {
-      const podId = runpodCfg.pods && runpodCfg.pods.comfyui;
-      if (!runpodCfg.apiKey || !podId) {
-        return { success: false, error: 'RunPod 설정이 비어있습니다. ComfyUI 버튼 옆 \u2601\ufe0f 버튼으로 먼저 설정해주세요.' };
+    ensurePentouchWebServer(); // 기다리지 않고 백그라운드로 같이 켠다
+    const alreadyRunning = await checkComfyUIAlive();
+    if (!alreadyRunning) {
+      if (!fs.existsSync(COMFYUI_BAT)) {
+        return { success: false, error: 'ComfyUI 실행 파일을 찾을 수 없습니다: ' + COMFYUI_BAT };
       }
-      const readyUrl = await ensureRunpodServiceReady(podId, 3000, 90000); // 콜드스타트 포함 최대 90초 대기
-      if (!readyUrl) {
-        return { success: false, error: 'RunPod ComfyUI가 90초 안에 켜지지 않았습니다. RunPod 대시보드에서 Pod 상태를 확인한 뒤 잠시 후 다시 눌러주세요.' };
-      }
-      comfyuiUrl = readyUrl;
-    } else {
-      ensurePentouchWebServer(); // 기다리지 않고 백그라운드로 같이 켠다
-      const alreadyRunning = await checkComfyUIAlive();
-      if (!alreadyRunning) {
-        if (!fs.existsSync(COMFYUI_BAT)) {
-          return { success: false, error: 'ComfyUI 실행 파일을 찾을 수 없습니다: ' + COMFYUI_BAT };
-        }
-        const serverProc = spawn('cmd.exe', ['/c', COMFYUI_BAT], {
-          cwd: COMFYUI_DIR, detached: true, stdio: 'ignore'
-        });
-        serverProc.unref();
-        const ready = await waitForComfyUI(60000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 60초 대기
-        if (!ready) {
-          return { success: false, error: 'ComfyUI 서버가 60초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
-        }
+      const serverProc = spawn('cmd.exe', ['/c', COMFYUI_BAT], {
+        cwd: COMFYUI_DIR, detached: true, stdio: 'ignore'
+      });
+      serverProc.unref();
+      const ready = await waitForComfyUI(60000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 60초 대기
+      if (!ready) {
+        return { success: false, error: 'ComfyUI 서버가 60초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
       }
     }
     const exePath = await resolveExePath('chromeExe', DEFAULT_CHROME_EXE, '크롬 실행 파일(chrome.exe)을 선택하세요');
@@ -2630,7 +2518,7 @@ ipcMain.handle('open-comfyui', async () => {
     y = Math.max(work.y, Math.min(y, work.y + work.height - h));
     const beforeHandles = await listChromeWindowHandles();
     const child = spawn(exePath, [
-      `--app=${comfyuiUrl}`,
+      `--app=${COMFYUI_URL}`,
       `--window-size=${w},${h}`,
       `--window-position=${x},${y}`,
       '--force-dark-mode',
