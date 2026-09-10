@@ -351,6 +351,8 @@
           </button>
           <button class="ql-btn" id="btnQlPureref">PureRef</button>
           <button class="ql-btn" id="btnQlComfyUI" title="ComfyUI 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다 (최대 1분 정도 걸릴 수 있음)">ComfyUI 워크플로우</button>
+          <button class="ql-btn" id="btnQlComfyUIRunpodSetup" title="ComfyUI를 RunPod 클라우드 Pod으로 연결/해제합니다 (API 키·Pod ID 설정) - 회사 PC 없이 클라우드 GPU로 돌릴 때 사용">☁️</button>
+          <span id="comfyModeLabel" style="font-size:12px;padding:2px 8px;border-radius:10px;align-self:center;white-space:nowrap;"></span>
           <button class="ql-btn ql-main" id="btnQlPentouch" title="펜터치 전용 앱 - LoRA(mypenink)+ControlNet(MistoLine) 워크플로우를 컷번호/저장폴더/세부 스탯까지 직접 조절할 수 있는 화면으로 엽니다">펜터치</button>
           <button class="ql-btn ql-main" id="btnQlWebtoon3d" title="웹툰 3D 참고용 메쉬 생성 앱 - Hunyuan3D-2mv 서버와 webtoon 웹앱이 꺼져 있으면 순서대로 자동으로 켠 뒤 창을 엽니다 (모델 로딩 때문에 최대 몇 분 걸릴 수 있음)">웹툰 3D</button>
           <button class="ql-btn ql-main" id="btnQlFlatcolor" title="밑색(AI 보조 선화 채색) 앱 - 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다. 서버가 0.0.0.0으로 열리므로 폰(Tailscale)에서도 그대로 접속할 수 있습니다">밑색</button>
@@ -588,6 +590,84 @@ document.getElementById('btnQlComfyUI').addEventListener('click', async (ev) => 
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
+});
+// ComfyUI를 RunPod 클라우드 Pod으로 연결/해제하는 설정 - 2026-09-07 추가.
+// 기존 로컬 실행 방식(위 btnQlComfyUI 핸들러, main.js의 open-comfyui)은 전혀 건드리지 않고,
+// reflib-config.json의 runpod 항목만 추가/변경한다. 다시 이 버튼을 눌러 '로컬로 되돌리기'를
+// 선택하면 원래 로컬 bat 실행 방식으로 즉시 돌아간다.
+// 2026-09-07 수정: 이 Electron 버전은 window.prompt()를 지원하지 않아(렌더러 보안 정책으로
+// 막혀있음) 직접 만든 작은 모달 창으로 입력을 받는다.
+function showRunpodSetupModal(currentApiKey, currentPodId) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML =
+      '<div style="background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:20px;width:420px;color:#eee;font-family:sans-serif;">' +
+        '<h3 style="margin-top:0;">RunPod 클라우드 연결 설정</h3>' +
+        '<label style="display:block;margin-bottom:4px;font-size:13px;">RunPod API 키</label>' +
+        '<input id="rpSetupApiKey" type="text" style="width:100%;box-sizing:border-box;padding:6px;margin-bottom:12px;background:#2a2a2a;border:1px solid #555;color:#eee;border-radius:4px;">' +
+        '<label style="display:block;margin-bottom:4px;font-size:13px;">ComfyUI Pod ID</label>' +
+        '<input id="rpSetupPodId" type="text" style="width:100%;box-sizing:border-box;padding:6px;margin-bottom:16px;background:#2a2a2a;border:1px solid #555;color:#eee;border-radius:4px;">' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button id="rpSetupCancel" style="padding:6px 14px;">취소</button>' +
+          '<button id="rpSetupOk" style="padding:6px 14px;background:#5865f2;color:#fff;border:none;border-radius:4px;cursor:pointer;">저장</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#rpSetupApiKey').value = currentApiKey || '';
+    overlay.querySelector('#rpSetupPodId').value = currentPodId || '';
+    const close = (result) => { document.body.removeChild(overlay); resolve(result); };
+    overlay.querySelector('#rpSetupCancel').onclick = () => close(null);
+    overlay.querySelector('#rpSetupOk').onclick = () => {
+      const apiKey = overlay.querySelector('#rpSetupApiKey').value.trim();
+      const podId = overlay.querySelector('#rpSetupPodId').value.trim();
+      if (!apiKey || !podId) { alert('API 키와 Pod ID를 모두 입력해주세요.'); return; }
+      close({ apiKey, podId });
+    };
+  });
+}
+// 2026-09-07 추가(사용자 지적: "저게 켜진건지 꺼진건지 내가 어떻게 알아") - 버튼을 눌러 확인창을
+// 띄우기 전에는 지금 로컬/런팟 중 어느 쪽으로 연결돼 있는지 화면에서 알 방법이 없었다. 항상 보이는
+// 표시를 버튼 옆에 둬서, 클릭 없이도 현재 상태를 바로 볼 수 있게 한다.
+async function refreshComfyModeLabel(){
+  const cfg = (await ipcRenderer.invoke('get-config')) || {};
+  const cur = (cfg.runpod && cfg.runpod.mode && cfg.runpod.mode.comfyui) || 'local';
+  const el = document.getElementById('comfyModeLabel');
+  if (!el) return;
+  if (cur === 'runpod') {
+    el.textContent = '☁ 런팟 연결됨';
+    el.style.background = '#5865f2'; el.style.color = '#fff';
+  } else {
+    el.textContent = '🖥 로컬';
+    el.style.background = '#333'; el.style.color = '#aaa';
+  }
+}
+refreshComfyModeLabel();
+document.getElementById('btnQlComfyUIRunpodSetup').addEventListener('click', async () => {
+  const cfg = (await ipcRenderer.invoke('get-config')) || {};
+  const cur = (cfg.runpod && cfg.runpod.mode && cfg.runpod.mode.comfyui) || 'local';
+  if (cur === 'runpod') {
+    if (confirm('현재 ComfyUI가 RunPod 클라우드로 연결되어 있습니다.\n로컬 실행 방식으로 되돌릴까요?')) {
+      cfg.runpod = cfg.runpod || {};
+      cfg.runpod.mode = Object.assign({}, cfg.runpod.mode, { comfyui: 'local' });
+      await ipcRenderer.invoke('set-config', cfg);
+      await refreshComfyModeLabel();
+      alert('로컬 실행 방식으로 되돌렸습니다.');
+    }
+    return;
+  }
+  const result = await showRunpodSetupModal(
+    cfg.runpod && cfg.runpod.apiKey,
+    cfg.runpod && cfg.runpod.pods && cfg.runpod.pods.comfyui
+  );
+  if (!result) return;
+  cfg.runpod = cfg.runpod || {};
+  cfg.runpod.apiKey = result.apiKey;
+  cfg.runpod.mode = Object.assign({}, cfg.runpod.mode, { comfyui: 'runpod' });
+  cfg.runpod.pods = Object.assign({}, cfg.runpod.pods, { comfyui: result.podId });
+  await ipcRenderer.invoke('set-config', cfg);
+  await refreshComfyModeLabel();
+  alert('RunPod 연결 설정 완료. 이제 "ComfyUI 워크플로우" 버튼을 누르면 클라우드 Pod을 사용합니다.');
 });
 document.getElementById('btnQlPentouch').addEventListener('click', async (ev) => {
   const btn = ev.currentTarget;
