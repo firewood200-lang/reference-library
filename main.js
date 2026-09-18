@@ -63,10 +63,13 @@ const NOTION_SYNC_DIR = 'C:\\Users\\user\\Claude\\Projects\\ai-webtoon studio1.0
 // 펜터치 로컬 앱 - 포스트잇/그리드와 같은 방식(소스 폴더를 이 앱의 electron 런타임으로 직접 실행).
 // ComfyUI 원본 노드 그래프(위 버튼)를 그대로 여는 대신, LoRA+ControlNet 워크플로우 전용 UI로
 // 감싼 별도 앱. 2026-08-06 추가.
-const DEFAULT_PENTOUCH_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch';
+// 2026-09-14 수정: 예전 경로(C:\Users\user\내 드라이브\...)는 구글드라이브 "파일 스트림" 모드 시절
+// 흔적으로, 이 PC에는 존재하지 않는 경로였다(펜터치 웹서버가 조용히 안 켜지던 원인). 지금 실제로
+// 쓰이고 있는(가장 최근까지 수정된) 사본은 구글드라이브 동기화 폴더 쪽이라 그 경로로 갱신한다.
+const DEFAULT_PENTOUCH_DIR = 'D:\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch';
 // 펜터치 웹 서버(폰에서 Tailscale로 접속하는 원격용) - ComfyUI나 펜터치 앱을 켤 때 같이 켜 두면
 // 따로 챙기지 않아도 폰에서 바로 쓸 수 있다. 2026-08-11 추가.
-const PENTOUCH_WEB_DIR = 'C:\\Users\\user\\내 드라이브\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch-web';
+const PENTOUCH_WEB_DIR = 'D:\\ai-webtoon studio1.0\\ai-webtoon studio1.0\\pentouch-app\\pentouch-web';
 const PENTOUCH_WEB_BAT = path.join(PENTOUCH_WEB_DIR, '펜터치웹서버실행.bat');
 const PENTOUCH_WEB_URL = 'http://127.0.0.1:8189';
 // 웹툰 3D(사진/선화 -> 3D 참고용 메쉬) - 버튼 하나로 Hunyuan3D-2mv 서버(꺼져 있으면 자동 시작)를
@@ -105,6 +108,15 @@ const FLATCOLOR_URL = 'http://127.0.0.1:8790';
 // 쓰면 두 경로 모두 매번 완전히 독립된 새 프로세스로 뜨므로, 창 크기·모양이 일치하고
 // 창을 닫을 때 서버도 같이 끄는 로직이 정확히 동작한다. 2026-09-03 추가.
 const FLATCOLOR_PROFILE_DIR = path.join(FLATCOLOR_DIR, '.appwindow_reflib');
+
+// 배경앱(background-line-studio, 러프→배경 생성→선화 변환) - 밑색과 같은 패턴.
+// 기존 배경선화_시작.bat을 그대로 쓰지 않고 서버만실행.bat(서버만 백그라운드로 켜고 바로
+// 끝나는 파일)을 새로 만들어 쓴다 - 기존 bat이 자체적으로 브라우저 창까지 열면, 아래에서
+// 위치까지 맞춰서 여는 크롬 창과 중복으로 뜨기 때문. 2026-09-14 추가.
+const BGLINE_DIR = 'D:\\배경선화';
+const BGLINE_BAT = path.join(BGLINE_DIR, '서버만실행.bat');
+const BGLINE_URL = 'http://127.0.0.1:8792';
+const BGLINE_PROFILE_DIR = path.join(BGLINE_DIR, '.appwindow_reflib');
 
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
@@ -2653,6 +2665,110 @@ ipcMain.handle('open-flatcolor', async () => {
         // 서버 종료 실패는 무시 - 다음에 밑색 버튼을 누르면 살아있는 서버를 그대로 재사용한다.
       }
     });
+    positionNewMiniWindow(beforeHandles, x, y, w, h);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 배경앱 서버가 살아있는지 확인 - 밑색과 같은 방식(가벼운 GET, 에러/타임아웃이면 죽은 것으로 판단).
+function checkBglineAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(BGLINE_URL, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+async function waitForBgline(maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkBglineAlive()) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+
+ipcMain.handle('open-bgline', async () => {
+  try {
+    const alreadyRunning = await checkBglineAlive();
+    let bglineServerPid = null;
+    if (!alreadyRunning) {
+      if (!fs.existsSync(BGLINE_BAT)) {
+        return { success: false, error: '배경 서버 실행 파일을 찾을 수 없습니다: ' + BGLINE_BAT };
+      }
+      const serverProc = spawn('cmd.exe', ['/c', BGLINE_BAT], {
+        cwd: BGLINE_DIR, detached: true, stdio: 'ignore'
+      });
+      bglineServerPid = serverProc.pid; // cmd.exe PID. /T로 종료하면 자식인 node.exe까지 트리째 종료된다.
+      serverProc.unref();
+      const ready = await waitForBgline(60000);
+      if (!ready) {
+        return { success: false, error: '배경 서버가 60초 안에 켜지지 않았습니다. 켜지는 중이라면 잠시 후 다시 눌러주세요.' };
+      }
+    }
+    const exePath = await resolveExePath('chromeExe', DEFAULT_CHROME_EXE, '크롬 실행 파일(chrome.exe)을 선택하세요');
+    if (!exePath) return { success: false, error: '크롬 실행 파일 위치를 찾지 못함' };
+    const w = 1500, h = 950;
+    const mb = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
+    const cx = mb ? mb.x + mb.width / 2 : null;
+    const cy = mb ? mb.y + mb.height / 2 : null;
+    const display = mb ? screen.getDisplayNearestPoint({ x: Math.round(cx), y: Math.round(cy) }) : screen.getPrimaryDisplay();
+    const work = display.workArea;
+    let x = mb ? Math.round(cx - w / 2) : Math.round(work.x + (work.width - w) / 2);
+    let y = mb ? Math.round(cy - h / 2) : Math.round(work.y + (work.height - h) / 2);
+    x = Math.max(work.x, Math.min(x, work.x + work.width - w));
+    y = Math.max(work.y, Math.min(y, work.y + work.height - h));
+    await killChromeUsingProfile(BGLINE_PROFILE_DIR);
+    const beforeHandles = await listChromeWindowHandles();
+    const child = spawn(exePath, [
+      `--app=${BGLINE_URL}`,
+      `--window-size=${w},${h}`,
+      `--window-position=${x},${y}`,
+      `--user-data-dir=${BGLINE_PROFILE_DIR}`,
+      '--disable-background-mode'
+    ], { detached: true, stdio: 'ignore' });
+
+    // 배경앱 전용: 요청에 따라 서버↔앱 창이 서로 상대를 따라 닫히도록 양방향으로 연결한다.
+    // (1) 창을 닫으면(밑색과 동일한 방식) 8792 포트를 물고 있는 서버 프로세스를 종료한다.
+    let bglineLinkStopped = false;
+    child.on('exit', () => {
+      bglineLinkStopped = true;
+      // 1차: 이번에 우리가 직접 띄운 서버 프로세스(cmd.exe -> node.exe)가 있으면 PID로 바로,
+      // 트리째(/T) 강제 종료한다. 포트 탐지보다 확실한 방법이라 우선 시도한다.
+      if (bglineServerPid) {
+        try { spawnSync('taskkill', ['/PID', String(bglineServerPid), '/T', '/F']); } catch (e) {}
+      }
+      // 2차 보강: 서버가 이번 클릭 이전부터 이미 켜져 있던 경우(위 PID를 모름) 등을 대비해,
+      // 포트 8792를 물고 있는 프로세스를 추가로 찾아 종료한다.
+      try {
+        const out = spawnSync('cmd.exe', ['/c', 'netstat -ano | findstr ":8792 "'], { encoding: 'utf8' });
+        const pids = new Set();
+        (out.stdout || '').split(/\r?\n/).forEach((line) => {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (/^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+        });
+        pids.forEach((pid) => spawnSync('taskkill', ['/PID', pid, '/T', '/F']));
+      } catch (e) {
+        // 서버 종료 실패는 무시 - 다음에 배경 버튼을 누르면 살아있는 서버를 그대로 재사용한다.
+      }
+    });
+    // (2) 반대로 서버가 먼저 꺼지면(예: 사용자가 서버 콘솔을 직접 닫는 경우), 주기적으로
+    // 서버 생존을 확인하다가 죽은 게 확인되면 이 크롬 창도 강제로 닫는다. 즉시가 아니라
+    // 확인 주기(4초)만큼의 지연이 있을 수 있다. 2026-09-14 추가.
+    const bglineWatcher = setInterval(async () => {
+      if (bglineLinkStopped) { clearInterval(bglineWatcher); return; }
+      const alive = await checkBglineAlive();
+      if (!alive && !bglineLinkStopped) {
+        bglineLinkStopped = true;
+        clearInterval(bglineWatcher);
+        try { spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F']); } catch (e) {}
+      }
+    }, 4000);
     positionNewMiniWindow(beforeHandles, x, y, w, h);
     return { success: true };
   } catch (err) {

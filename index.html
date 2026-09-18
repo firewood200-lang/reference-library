@@ -354,6 +354,7 @@
           <button class="ql-btn ql-main" id="btnQlPentouch" title="펜터치 전용 앱 - LoRA(mypenink)+ControlNet(MistoLine) 워크플로우를 컷번호/저장폴더/세부 스탯까지 직접 조절할 수 있는 화면으로 엽니다">펜터치</button>
           <button class="ql-btn ql-main" id="btnQlWebtoon3d" title="웹툰 3D 참고용 메쉬 생성 앱 - Hunyuan3D-2mv 서버와 webtoon 웹앱이 꺼져 있으면 순서대로 자동으로 켠 뒤 창을 엽니다 (모델 로딩 때문에 최대 몇 분 걸릴 수 있음)">웹툰 3D</button>
           <button class="ql-btn ql-main" id="btnQlFlatcolor" title="밑색(AI 보조 선화 채색) 앱 - 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다. 서버가 0.0.0.0으로 열리므로 폰(Tailscale)에서도 그대로 접속할 수 있습니다">밑색</button>
+          <button class="ql-btn" id="btnQlBgline" title="배경(러프→배경 생성→선화 변환) 앱 - 서버가 꺼져 있으면 자동으로 켠 뒤 창을 엽니다. 서버와 앱 창이 서로 연동되어 있어 하나를 닫으면 나머지도 자동으로 닫힙니다">배경</button>
         </div>
         <!-- 콜로소뿐 아니라 아무 사이트나 주소를 넣어서 탭/주소창 없는 작은 창으로 열 수 있다 -
              임베드가 막힌 사이트를 옆에 띄워두고 참고할 때 범용으로 쓴다 -->
@@ -621,6 +622,18 @@ document.getElementById('btnQlFlatcolor').addEventListener('click', async (ev) =
   try {
     const r = await ipcRenderer.invoke('open-flatcolor');
     if (!r.success) alert('밑색 앱 열기 실패: ' + r.error);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+// 배경: 서버가 꺼져 있으면 켜는 데 시간이 걸릴 수 있어서, 기다리는 동안 버튼 글자를 바꿔 진행 상황을 보여준다(밑색 버튼과 같은 패턴).
+document.getElementById('btnQlBgline').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 여는 중...';
+  try {
+    const r = await ipcRenderer.invoke('open-bgline');
+    if (!r.success) alert('배경 앱 열기 실패: ' + r.error);
   } finally {
     btn.disabled = false; btn.textContent = original;
   }
