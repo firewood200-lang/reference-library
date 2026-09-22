@@ -9,6 +9,9 @@ ai-model/visual/model.onnx
 _backup_pre_ai_search/
 main.js.corrupted-backup-*
 
+# 서버 실행 로그(2026-09-22 콘솔창 숨김 작업으로 추가) - 코드가 아니라 실행 기록이라 git으로는 안 옮긴다.
+logs/
+
 # OS/에디터 잡파일
 Thumbs.db
 .DS_Store

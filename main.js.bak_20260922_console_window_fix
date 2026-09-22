@@ -118,23 +118,6 @@ const BGLINE_BAT = path.join(BGLINE_DIR, '서버만실행.bat');
 const BGLINE_URL = 'http://127.0.0.1:8792';
 const BGLINE_PROFILE_DIR = path.join(BGLINE_DIR, '.appwindow_reflib');
 
-// 2026-09-22 추가: 서버(ComfyUI/펜터치웹서버/밑색/배경선화/웹툰3D)를 백그라운드로 켤 때마다
-// 검은 콘솔창이 하나씩 떠서, 여러 개를 같이 켜면 창이 뒤섞여 어떤 게 어떤 서버인지 구별이
-// 안 되는 문제가 있었다. windowsHide로 그 콘솔창 자체를 아예 안 뜨게 한다(로컬LLM/Ollama
-// 버튼에 이미 같은 방식이 쓰이고 있던 것을 나머지 서버에도 동일 적용). 창이 없으면 에러가
-// 나도 화면으로 못 보게 되므로, 대신 서버별 로그 파일(logs\<이름>.log)에 출력을 남긴다.
-const SERVER_LOGS_DIR = path.join(__dirname, 'logs');
-function openServerLogFd(name) {
-  try {
-    if (!fs.existsSync(SERVER_LOGS_DIR)) fs.mkdirSync(SERVER_LOGS_DIR, { recursive: true });
-    const logPath = path.join(SERVER_LOGS_DIR, name + '.log');
-    fs.appendFileSync(logPath, `\n===== 시작: ${new Date().toLocaleString('ko-KR')} =====\n`);
-    return fs.openSync(logPath, 'a');
-  } catch (e) {
-    return 'ignore'; // 로그 파일을 못 열어도 서버 실행 자체는 막지 않고 기존처럼 무시하고 진행한다
-  }
-}
-
 // 2026-07-18: 이 창(레퍼런스 라이브러리)에서 더블클릭·버튼 등으로 파생되는 팝업/새 창들이 화면
 // 아무 데나 뜨지 않고 이 창 정중앙에 뜨도록 하는 공용 헬퍼. 자식 창 크기(width,height)를 받아
 // 이 창의 중심점에 맞춘 좌상단 좌표를 계산하되, 그 중심점이 속한 모니터의 작업영역을 벗어나지
@@ -2548,9 +2531,8 @@ async function ensurePentouchWebServer() {
     const alreadyRunning = await checkPentouchWebAlive();
     if (alreadyRunning) return;
     if (!fs.existsSync(PENTOUCH_WEB_BAT)) return; // 조용히 무시 - 부가 서비스라 없어도 메인 동작을 막지 않는다
-    const pentouchWebLogFd = openServerLogFd('pentouch-web');
     const serverProc = spawn('cmd.exe', ['/c', PENTOUCH_WEB_BAT], {
-      cwd: PENTOUCH_WEB_DIR, detached: true, windowsHide: true, stdio: ['ignore', pentouchWebLogFd, pentouchWebLogFd]
+      cwd: PENTOUCH_WEB_DIR, detached: true, stdio: 'ignore'
     });
     serverProc.unref();
   } catch (err) {
@@ -2565,9 +2547,8 @@ ipcMain.handle('open-comfyui', async () => {
       if (!fs.existsSync(COMFYUI_BAT)) {
         return { success: false, error: 'ComfyUI 실행 파일을 찾을 수 없습니다: ' + COMFYUI_BAT };
       }
-      const comfyuiLogFd = openServerLogFd('comfyui');
       const serverProc = spawn('cmd.exe', ['/c', COMFYUI_BAT], {
-        cwd: COMFYUI_DIR, detached: true, windowsHide: true, stdio: ['ignore', comfyuiLogFd, comfyuiLogFd]
+        cwd: COMFYUI_DIR, detached: true, stdio: 'ignore'
       });
       serverProc.unref();
       const ready = await waitForComfyUI(60000); // 모델 로딩 등으로 시간이 걸릴 수 있어 최대 60초 대기
@@ -2630,9 +2611,8 @@ ipcMain.handle('open-flatcolor', async () => {
       if (!fs.existsSync(FLATCOLOR_BAT)) {
         return { success: false, error: '밑색 서버 실행 파일을 찾을 수 없습니다: ' + FLATCOLOR_BAT };
       }
-      const flatcolorLogFd = openServerLogFd('flatcolor');
       const serverProc = spawn('cmd.exe', ['/c', FLATCOLOR_BAT], {
-        cwd: FLATCOLOR_DIR, detached: true, windowsHide: true, stdio: ['ignore', flatcolorLogFd, flatcolorLogFd]
+        cwd: FLATCOLOR_DIR, detached: true, stdio: 'ignore'
       });
       serverProc.unref();
       const ready = await waitForFlatcolor(60000);
@@ -2720,9 +2700,8 @@ ipcMain.handle('open-bgline', async () => {
       if (!fs.existsSync(BGLINE_BAT)) {
         return { success: false, error: '배경 서버 실행 파일을 찾을 수 없습니다: ' + BGLINE_BAT };
       }
-      const bglineLogFd = openServerLogFd('bgline');
       const serverProc = spawn('cmd.exe', ['/c', BGLINE_BAT], {
-        cwd: BGLINE_DIR, detached: true, windowsHide: true, stdio: ['ignore', bglineLogFd, bglineLogFd]
+        cwd: BGLINE_DIR, detached: true, stdio: 'ignore'
       });
       bglineServerPid = serverProc.pid; // cmd.exe PID. /T로 종료하면 자식인 node.exe까지 트리째 종료된다.
       serverProc.unref();
@@ -2845,9 +2824,8 @@ ipcMain.handle('open-webtoon3d', async () => {
       if (!fs.existsSync(HUNYUAN_MV_BAT)) {
         return { success: false, error: 'Hunyuan3D-2mv 실행 파일을 찾을 수 없습니다: ' + HUNYUAN_MV_BAT };
       }
-      const hunyuanMvLogFd = openServerLogFd('hunyuan-mv');
       const hunyuanProc = spawn('cmd.exe', ['/c', HUNYUAN_MV_BAT], {
-        cwd: HUNYUAN_MV_DIR, detached: true, windowsHide: true, stdio: ['ignore', hunyuanMvLogFd, hunyuanMvLogFd]
+        cwd: HUNYUAN_MV_DIR, detached: true, stdio: 'ignore'
       });
       hunyuanProc.unref();
       const hunyuanReady = await waitForHunyuanMv(180000); // 모델 로딩에 시간이 걸릴 수 있어 최대 3분 대기
@@ -2861,9 +2839,8 @@ ipcMain.handle('open-webtoon3d', async () => {
       if (!fs.existsSync(WEBTOON3D_BAT)) {
         return { success: false, error: '웹툰 3D 앱 실행 파일을 찾을 수 없습니다: ' + WEBTOON3D_BAT };
       }
-      const webtoon3dLogFd = openServerLogFd('webtoon3d');
       const webtoonProc = spawn('cmd.exe', ['/c', WEBTOON3D_BAT], {
-        cwd: WEBTOON3D_DIR, detached: true, windowsHide: true, stdio: ['ignore', webtoon3dLogFd, webtoon3dLogFd]
+        cwd: WEBTOON3D_DIR, detached: true, stdio: 'ignore'
       });
       webtoonProc.unref();
       const webtoonReady = await waitForWebtoon3d(60000);
